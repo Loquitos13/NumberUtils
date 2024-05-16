@@ -51,7 +51,7 @@ public class Main {
         Scanner scannerCrescente = new Scanner(System.in);
         String ordenacao = scannerCrescente.nextLine();
 
-        if (Objects.equals(ordenacao, "crescente") || Objects.equals(ordenacao, "Crescente")) {
+        if (Objects.equals(ordenacao, "crescente") || Objects.equals(ordenacao, "Crescente")|| Objects.equals(ordenacao, "CRESCENTE")) {
             NumberUtils.ordenarLista(numerosCrescente, true);
             System.out.println("Lista em ordem crescente: " + numerosCrescente);
         } else {
