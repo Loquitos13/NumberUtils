@@ -1,26 +1,21 @@
-import java.lang.reflect.Array;
+import java.lang.*;
 import java.util.*;
 class ModaResultado {
     private static List<Double> moda;
     private int freqMaxima;
-
     public ModaResultado(List<Double> moda, int freqMaxima) {
         this.moda = moda;
         this.freqMaxima = freqMaxima;
     }
-
     public static List<Double> getModa() {
         return moda;
     }
-
     public int getFreqMaxima() {
         return freqMaxima;
     }
 }
-
-
 public class NumberUtils {
-    //Método para calcular a média dos X números indicados pelo utilizador.
+    //metodo para calcular a média dos X números indicados pelo utilizador
     public static double calcularMedia(List<Double> numeros) {
         double soma = 0;
         for (Double num : numeros) {
@@ -28,8 +23,7 @@ public class NumberUtils {
         }
         return soma / numeros.size();
     }
-
-    //Método para calcular a mediana (número do meio da sequência).
+    //metodo para calcular a mediana (número do meio da sequência)
     public static double calcularMediana(List<Double> numeros) {
         List<Double> listaNumeros = new ArrayList<>(numeros);
         int numeroMeio = listaNumeros.size() / 2;
@@ -41,17 +35,14 @@ public class NumberUtils {
             return listaNumeros.get(numeroMeio);
         }
     }
-
     public static ModaResultado calcularModa(List<Double> numeros) {
         if (numeros.isEmpty()) return new ModaResultado(new ArrayList<>(), 0);
-
         Map<Double, Integer> frequenciaNumero = new HashMap<>();
         for (Double num : numeros) {
             frequenciaNumero.put(num, frequenciaNumero.getOrDefault(num, 0) + 1);
         }
 
         int freqMaxima = Collections.max(frequenciaNumero.values());
-
         List<Double> moda = new ArrayList<>();
         if (freqMaxima >= 2) {
             for (Map.Entry<Double, Integer> entry : frequenciaNumero.entrySet()) {
@@ -62,8 +53,6 @@ public class NumberUtils {
         }
         return new ModaResultado(moda, freqMaxima);
     }
-
-
     public static void ordenarLista(List<Double> numeros, boolean crescente) {
         if (crescente) {
             Collections.sort(numeros);
@@ -71,7 +60,6 @@ public class NumberUtils {
             Collections.sort(numeros, Collections.reverseOrder());
         }
     }
-
 }
 
 
