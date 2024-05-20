@@ -9,7 +9,11 @@ public class Main {
         while (true) {
             String input = scanner.nextLine().trim();
             if (input.equals(".")) {
-                break;
+                if (numeros.isEmpty()) {
+                    System.out.println("Nenhum número foi inserido.");
+                }else{
+                    break;
+                }
             }
             try {
                 double num = Double.parseDouble(input);
@@ -19,10 +23,7 @@ public class Main {
             }
         }
         // verifica se a listade números está vazia
-        if (numeros.isEmpty()) {
-            System.out.println("Nenhum número foi inserido.");
-            return;
-        }
+
         // calcula a média
         double media = NumberUtils.calcularMedia(numeros);
         System.out.println("Média: " + media);
