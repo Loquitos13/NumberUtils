@@ -9,12 +9,12 @@ function linhasEditor(root, linhas, onChange) {
   const lk = L();
   const draw = () => {
     root.innerHTML = `<div class="tbl-wrap" style="max-height:none"><table class="t"><thead><tr><th style="width:28%">Serviço</th><th>Descrição</th><th style="width:70px">Dente</th>
-      <th style="width:60px">Qtd</th><th style="width:90px">Preço</th><th style="width:70px">Desc.%</th><th style="width:65px">IVA%</th><th class="right" style="width:90px">Total</th><th></th></tr></thead>
+      <th style="width:60px">Qtd</th><th style="width:90px">Preço</th><th style="width:70px">Desc.%</th><th style="width:120px">IVA</th><th class="right" style="width:90px">Total</th><th></th></tr></thead>
       <tbody>${linhas.map((l, i) => `<tr data-i="${i}">
         <td>${sel('servico_id', opts(ativos(lk.servicos), l.servico_id, { empty: '—', label: s => `${s.codigo || ''} ${s.nome}` }))}</td>
         <td>${inp('descricao', l.descricao)}</td><td>${inp('dente', l.dente)}</td>
         <td>${inp('qtd', l.qtd ?? 1, 'type="number" step="1" min="0"')}</td><td>${inp('preco', l.preco ?? 0, 'type="number" step="0.01"')}</td>
-        <td>${inp('desconto_pct', l.desconto_pct ?? 0, 'type="number" step="0.01"')}</td><td>${inp('iva', l.iva ?? 0, 'type="number" step="0.01"')}</td>
+        <td>${inp('desconto_pct', l.desconto_pct ?? 0, 'type="number" step="0.01"')}</td><td>${sel('iva_id', ivaOpts(ivaFix(l).iva_id))}</td>
         <td class="right bold" data-tot></td><td>${l.tratamento_id ? '<span title="Tratamento associado">🦷</span>' : ''}<button type="button" class="ghost sm" data-rm>✕</button></td></tr>`).join('')}</tbody></table></div>
       <div class="row between" style="margin-top:8px"><button type="button" class="sm" data-add>＋ Linha</button>
       <div id="le-tot" class="right"></div></div>`;
@@ -25,13 +25,14 @@ function linhasEditor(root, linhas, onChange) {
         l[inpEl.name] = inpEl.type === 'number' ? Number(inpEl.value) : inpEl.value;
         if (inpEl.name === 'servico_id') {
           const s = byId(lk.servicos, inpEl.value);
-          if (s) { l.servico_id = s.id; l.descricao = s.nome; l.preco = s.preco; l.iva = s.iva; draw(); return; }
+          if (s) { l.servico_id = s.id; l.descricao = s.nome; l.preco = s.preco; l.iva_id = s.iva_id; l.iva = s.iva; ivaFix(l); draw(); return; }
         }
+        if (inpEl.name === 'iva_id') { l.iva_id = Number(inpEl.value); l.iva = byId(lk.ivas, l.iva_id)?.taxa ?? 0; }
         totals();
       }));
       $('[data-rm]', tr).onclick = () => { linhas.splice(i, 1); draw(); };
     });
-    $('[data-add]', root).onclick = () => { linhas.push({ qtd: 1, preco: 0, desconto_pct: 0, iva: Number(lk.config.iva_default) || 0 }); draw(); };
+    $('[data-add]', root).onclick = () => { linhas.push(ivaFix({ qtd: 1, preco: 0, desconto_pct: 0 })); draw(); };
     totals();
   };
   const totals = () => {
@@ -53,8 +54,8 @@ async function emitirDocumento({ paciente, tratamentos = [], linhas, tipo = 'FR'
   const lk = L();
   const ent = paciente ? byId(lk.entidades, paciente.entidade_id) : null;
   linhas = linhas || tratamentos.map(t => ({ servico_id: t.servico_id, tratamento_id: t.id, descricao: t.descricao, dente: t.dente, qtd: 1, preco: t.preco,
-    desconto_pct: t.desconto_pct ?? ent?.desconto_pct ?? 0, iva: t.iva ?? 0 }));
-  if (!linhas.length) linhas.push({ qtd: 1, preco: 0, desconto_pct: ent?.desconto_pct || 0, iva: Number(lk.config.iva_default) || 0 });
+    desconto_pct: t.desconto_pct ?? ent?.desconto_pct ?? 0, iva: t.iva ?? 0, iva_id: t.iva_id }));
+  if (!linhas.length) linhas.push(ivaFix({ qtd: 1, preco: 0, desconto_pct: ent?.desconto_pct || 0 }));
   let total = 0;
   const medDefault = tratamentos[0]?.medico_id || paciente?.medico_id || App.user.medico_id;
   modal({ title: tipo === 'NC' ? `Nota de crédito ${ref ? '— ref. ' + ref.numero : ''}` : 'Emitir documento', size: 'lg', body: `<form class="form-grid" onsubmit="return false">
@@ -121,6 +122,7 @@ function docHTML(d) {
     ${d.linhas.map(l => `<tr><td>${esc(l.descricao)}</td><td>${esc(l.dente)}</td><td class="right">${num(l.qtd)}</td><td class="right">${eur(l.preco)}</td><td class="right">${l.desconto_pct ? num(l.desconto_pct) + '%' : ''}</td><td class="right">${num(l.iva)}%</td><td class="right">${eur(l.total)}</td></tr>`).join('')}</table>
     <table class="tot"><tr><td>Base tributável</td><td class="right">${eur(d.total_base)}</td></tr><tr><td>IVA</td><td class="right">${eur(d.total_iva)}</td></tr>
     <tr><td><b>Total</b></td><td class="right"><b>${eur(d.total)}</b></td></tr></table>
+    ${[...new Set(d.linhas.filter(l => l.isencao_cod).map(l => `${l.isencao_cod} — ${l.isencao_motivo || ''}`))].map(m => `<p>Motivo de isenção de IVA: ${esc(m)}</p>`).join('')}
     ${d.pagamentos.length ? `<p>Pagamento: ${d.pagamentos.map(p => `${esc(p.metodo)} ${eur(p.valor)} (${fmtDate(p.data)})`).join(', ')}</p>` : ''}
     ${d.notas ? `<p>${esc(d.notas).replace(/\n/g, '<br>')}</p>` : ''}
     <div class="foot">${esc(L().config.doc_rodape || '')}<br>${esc(AVISO_CERT)}<br>Emitido por ${esc(d.user_nome || '')}</div></div>`;
@@ -262,7 +264,7 @@ async function editOrcamento(id, { paciente, linhas } = {}) {
   const lk = L();
   const o = id ? await GET('orcamentos/' + id) : { data: isoDate(), medico_id: paciente?.medico_id || App.user.medico_id, linhas: linhas || [] };
   const ls = o.linhas.map(l => ({ ...l }));
-  if (!ls.length) ls.push({ qtd: 1, preco: 0, desconto_pct: byId(lk.entidades, paciente?.entidade_id)?.desconto_pct || 0, iva: 0 });
+  if (!ls.length) ls.push(ivaFix({ qtd: 1, preco: 0, desconto_pct: byId(lk.entidades, paciente?.entidade_id)?.desconto_pct || 0 }));
   modal({ title: id ? `Orçamento ${o.numero}` : 'Novo orçamento', size: 'lg', body: `<form class="form-grid" onsubmit="return false">
     <div class="s2">${pacField('paciente_id', o.paciente_id ?? paciente?.id, o.paciente_nome ?? paciente?.nome)}</div>
     ${fld('Médico', sel('medico_id', opts(lk.medicos, o.medico_id, { empty: '—', only: x => x.ativo })))}${fld('Data', inp('data', o.data, 'type="date"'))}

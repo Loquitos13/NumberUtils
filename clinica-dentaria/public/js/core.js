@@ -173,7 +173,8 @@ function printHTML(html) {
 function cabecalhoClinica() {
   const c = L().config;
   return `<div><div style="font-size:18px;font-weight:700">${esc(c.clinica_nome)}</div><div>${esc(c.clinica_morada)}</div><div>${esc(c.clinica_cp)}</div>
-    <div>NIF ${esc(c.clinica_nif)} · Tel. ${esc(c.clinica_telefone)} · ${esc(c.clinica_email)}</div>${c.clinica_ers ? `<div>ERS n.º ${esc(c.clinica_ers)}</div>` : ''}</div>`;
+    <div>NIF ${esc(c.clinica_nif)} · Tel. ${esc(c.clinica_telefone)} · ${esc(c.clinica_email)}</div>${c.clinica_ers ? `<div>ERS n.º ${esc(c.clinica_ers)}</div>` : ''}
+    ${c.clinica_capital || c.clinica_crc ? `<div style="font-size:10px">${c.clinica_capital ? 'Capital social ' + esc(c.clinica_capital) : ''}${c.clinica_crc ? ' · CRC ' + esc(c.clinica_crc) : ''}</div>` : ''}</div>`;
 }
 
 // ---------- seletor de paciente (autocomplete) ----------
@@ -220,6 +221,22 @@ function bindPacField(root, name, onPick) {
   if (!vis) return;
   patientPicker(vis, p => { hid.value = p.id; vis.value = p.nome; onPick && onPick(p); });
   vis.addEventListener('input', () => { hid.value = ''; });
+}
+
+// ---------- IVA ----------
+function ivaLabel(v) { return v ? `${num(v.taxa)}% ${v.codigo || ''}${v.regiao && v.regiao !== 'PT' ? ' ' + v.regiao : ''}${v.isencao_cod ? ' · ' + v.isencao_cod : ''}` : ''; }
+function ivaDefault() {
+  const ivs = ativos(L().ivas); const reg = L().config.clinica_regiao_iva || 'PT';
+  const taxa = Number(L().config.iva_default) || 0;
+  return ivs.find(v => v.taxa === taxa && v.regiao === reg) || ivs.find(v => v.taxa === taxa) || ivs[0];
+}
+function ivaOpts(id) { return opts(L().ivas, id ?? ivaDefault()?.id, { label: ivaLabel, only: v => v.ativo }); }
+// garante iva_id/iva coerentes numa linha
+function ivaFix(l) {
+  let v = l.iva_id ? byId(L().ivas, l.iva_id) : null;
+  if (!v) v = ativos(L().ivas).find(x => x.taxa === Number(l.iva ?? NaN)) || ivaDefault();
+  if (v) { l.iva_id = v.id; l.iva = v.taxa; }
+  return l;
 }
 
 // ---------- gráficos simples ----------

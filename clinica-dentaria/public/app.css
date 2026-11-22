@@ -151,6 +151,7 @@ table.t tfoot td { font-weight: 600; border-top: 2px solid var(--line); }
 .ev:hover { z-index: 3; box-shadow: 0 4px 12px rgba(0,0,0,.18); }
 .ev .h { font-weight: 600; }
 .ev.inact { opacity: .55; text-decoration: line-through; }
+.blk { position: absolute; left: 0; right: 0; z-index: 1; background: repeating-linear-gradient(45deg, #fee2e2, #fee2e2 8px, #fecaca 8px, #fecaca 16px); color: #7f1d1d; font-size: .74rem; font-weight: 600; padding: 3px 6px; overflow: hidden; cursor: pointer; border-top: 2px solid #f87171; opacity: .92; display: flex; align-items: flex-end; justify-content: flex-end; text-align: right; }
 .now-line { position: absolute; left: 0; right: 0; height: 2px; background: var(--danger); z-index: 3; pointer-events: none; }
 .legend { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: .8rem; }
 

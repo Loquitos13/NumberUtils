@@ -143,8 +143,73 @@ CREATE TABLE IF NOT EXISTS logs (
 db.exec(SCHEMA);
 
 // migrações simples para bases de dados criadas por versões anteriores
-for (const sql of ['ALTER TABLE orcamento_linhas ADD COLUMN tratamento_id INTEGER']) {
+db.exec(`
+CREATE TABLE IF NOT EXISTS ivas (
+  id INTEGER PRIMARY KEY, taxa REAL NOT NULL, descricao TEXT, regiao TEXT DEFAULT 'PT', codigo TEXT DEFAULT 'NOR',
+  isencao_cod TEXT, isencao_motivo TEXT, ativo INTEGER DEFAULT 1);
+CREATE TABLE IF NOT EXISTS bloqueios (
+  id INTEGER PRIMARY KEY, medico_id INTEGER REFERENCES medicos(id), inicio TEXT NOT NULL, fim TEXT NOT NULL,
+  tipo TEXT DEFAULT 'ausencia', motivo TEXT, criado_por INTEGER);
+CREATE TABLE IF NOT EXISTS lista_espera (
+  id INTEGER PRIMARY KEY, paciente_id INTEGER REFERENCES pacientes(id) ON DELETE CASCADE, medico_id INTEGER,
+  servico_id INTEGER, preferencia TEXT, notas TEXT, estado TEXT DEFAULT 'aguarda', criado_em TEXT DEFAULT (datetime('now','localtime')));
+`);
+
+// migrações simples (colunas novas) para bases de dados criadas por versões anteriores
+const MIGRACOES = [
+  'ALTER TABLE orcamento_linhas ADD COLUMN tratamento_id INTEGER',
+  'ALTER TABLE especialidades ADD COLUMN abreviatura TEXT',
+  'ALTER TABLE servicos ADD COLUMN iva_id INTEGER',
+  'ALTER TABLE tratamentos ADD COLUMN iva_id INTEGER',
+  'ALTER TABLE orcamento_linhas ADD COLUMN iva_id INTEGER',
+  'ALTER TABLE documento_linhas ADD COLUMN iva_id INTEGER',
+  'ALTER TABLE documento_linhas ADD COLUMN isencao_cod TEXT',
+  'ALTER TABLE documento_linhas ADD COLUMN isencao_motivo TEXT',
+  'ALTER TABLE marcacoes ADD COLUMN remarcacoes INTEGER DEFAULT 0',
+  'ALTER TABLE marcacoes ADD COLUMN alterado_por INTEGER',
+  'ALTER TABLE marcacoes ADD COLUMN alterado_em TEXT',
+  'ALTER TABLE pacientes ADD COLUMN titulo TEXT',
+  'ALTER TABLE pacientes ADD COLUMN id_externo TEXT',
+  'ALTER TABLE pacientes ADD COLUMN nacionalidade TEXT',
+  'ALTER TABLE pacientes ADD COLUMN idioma TEXT',
+  'ALTER TABLE pacientes ADD COLUMN contacto_emergencia TEXT',
+  'ALTER TABLE pacientes ADD COLUMN telefone_emergencia TEXT',
+  'ALTER TABLE pacientes ADD COLUMN foto TEXT',
+  'ALTER TABLE pacientes ADD COLUMN agregado_id INTEGER',
+  'ALTER TABLE pacientes ADD COLUMN alterado_por INTEGER',
+  'ALTER TABLE pacientes ADD COLUMN alterado_em TEXT',
+];
+for (const sql of MIGRACOES) {
   try { db.exec(sql); } catch { /* coluna já existe */ }
+}
+
+// tabela de IVA (Portugal continental e regiões autónomas) com motivos de isenção
+const ISENCOES = [
+  ['M01', 'Artigo 16.º, n.º 6 do CIVA'], ['M02', 'Artigo 6.º do Decreto-Lei n.º 198/90, de 19 de junho'], ['M04', 'Isento artigo 13.º do CIVA'],
+  ['M05', 'Isento artigo 14.º do CIVA'], ['M06', 'Isento artigo 15.º do CIVA'], ['M07', 'Isento artigo 9.º do CIVA'],
+  ['M09', 'IVA - não confere direito a dedução'], ['M10', 'IVA - regime de isenção'], ['M11', 'Regime particular do tabaco'],
+  ['M12', 'Regime da margem de lucro - Agências de viagens'], ['M13', 'Regime da margem de lucro - Bens em segunda mão'],
+  ['M14', 'Regime da margem de lucro - Objetos de arte'], ['M15', 'Regime da margem de lucro - Objetos de coleção e antiguidades'],
+  ['M16', 'Isento artigo 14.º do RITI'], ['M19', 'Outras isenções'], ['M20', 'IVA - regime forfetário'],
+  ['M21', 'IVA - não confere direito à dedução (ou expressão similar)'], ['M25', 'Mercadorias à consignação'],
+  ['M30', 'IVA - autoliquidação (artigo 2.º, n.º 1, alínea i) do CIVA)'], ['M31', 'IVA - autoliquidação (artigo 2.º, n.º 1, alínea j) do CIVA)'],
+  ['M32', 'IVA - autoliquidação (artigo 2.º, n.º 1, alínea l) do CIVA)'], ['M33', 'IVA - autoliquidação (artigo 2.º, n.º 1, alínea m) do CIVA)'],
+  ['M40', 'IVA - autoliquidação (artigo 6.º, n.º 6, alínea a) do CIVA, a contrário)'], ['M41', 'IVA - autoliquidação (artigo 8.º, n.º 3 do RITI)'],
+  ['M42', 'IVA - autoliquidação (Decreto-Lei n.º 21/2007, de 29 de janeiro)'], ['M43', 'IVA - autoliquidação (Decreto-Lei n.º 362/99, de 16 de setembro)'],
+  ['M99', 'Não sujeito ou não tributado'],
+];
+if (db.prepare('SELECT COUNT(*) c FROM ivas').get().c === 0) {
+  const ins = db.prepare('INSERT INTO ivas (taxa, descricao, regiao, codigo, isencao_cod, isencao_motivo) VALUES (?,?,?,?,?,?)');
+  ins.run(0, 'Isento (art. 9.º CIVA)', 'PT', 'ISE', 'M07', 'Isento artigo 9.º do CIVA');
+  ins.run(6, 'Taxa reduzida', 'PT', 'RED', null, null);
+  ins.run(13, 'Taxa intermédia', 'PT', 'INT', null, null);
+  ins.run(23, 'Taxa normal', 'PT', 'NOR', null, null);
+  ins.run(4, 'Taxa reduzida Açores', 'PT-AC', 'RED', null, null);
+  ins.run(9, 'Taxa intermédia Açores', 'PT-AC', 'INT', null, null);
+  ins.run(16, 'Taxa normal Açores', 'PT-AC', 'NOR', null, null);
+  ins.run(4, 'Taxa reduzida Madeira', 'PT-MA', 'RED', null, null);
+  ins.run(12, 'Taxa intermédia Madeira', 'PT-MA', 'INT', null, null);
+  ins.run(22, 'Taxa normal Madeira', 'PT-MA', 'NOR', null, null);
 }
 
 function hashPassword(pw) {
@@ -189,6 +254,9 @@ function seed() {
       moeda: '€',
       doc_rodape: 'Isento de IVA nos termos do art.º 9.º do CIVA.',
       validade_orcamento_dias: '90',
+      clinica_telemovel: '', clinica_website: '', clinica_capital: '', clinica_crc: '', clinica_iban: '',
+      clinica_regiao_iva: 'PT', representante_nome: '', representante_nif: '',
+      agenda_mensagem: '',
     };
     for (const [k, v] of Object.entries(cfg)) run('INSERT INTO config VALUES (?,?)', k, v);
 
@@ -355,11 +423,15 @@ function seedDemo() {
   run("INSERT INTO tratamentos (paciente_id, medico_id, servico_id, descricao, dente, faces, estado, data, preco) VALUES (1,1,8,'Restauração compósito 2 faces','16','OM','planeado',?,65)", iso(hoje));
   run("INSERT INTO tratamentos (paciente_id, medico_id, servico_id, descricao, dente, estado, data, preco) VALUES (1,2,15,'Implante dentário (cirurgia)','36','planeado',?,900)", iso(hoje));
   run("INSERT INTO tratamentos (paciente_id, medico_id, servico_id, descricao, dente, estado, data, preco) VALUES (1,1,4,'Destartarização e polimento',NULL,'realizado',?,50)", iso(hoje));
+  run("INSERT INTO bloqueios (medico_id, inicio, fim, tipo, motivo) VALUES (3, ?, ?, 'congresso', 'Congresso de Ortodontia')", addDays(iso(hoje), 9) + 'T00:00', addDays(iso(hoje), 10) + 'T23:59');
+  run("INSERT INTO lista_espera (paciente_id, medico_id, servico_id, preferencia, notas) VALUES (5, 1, 1, 'Manhãs', 'Avisar se houver desistência')");
   run("INSERT INTO proteses (paciente_id, medico_id, laboratorio_id, tipo, descricao, dentes, data_emissao, data_prevista, fase, custo) VALUES (2,2,1,'Coroa','Coroa zircónia','21',?,?,'enviado',180)",
     iso(hoje), addDays(iso(hoje), 7));
 }
 
 seed();
+// tratamentos sem taxa de IVA definida ficam com a taxa isenta (art. 9.º CIVA)
+run("UPDATE servicos SET iva_id=(SELECT id FROM ivas WHERE codigo='ISE' AND ativo=1 ORDER BY id LIMIT 1) WHERE iva_id IS NULL AND COALESCE(iva,0)=0");
 
 function getConfig() {
   const o = {};
@@ -371,4 +443,4 @@ function log(userId, acao, detalhe) {
   try { run('INSERT INTO logs (user_id, acao, detalhe) VALUES (?,?,?)', userId || null, acao, detalhe || ''); } catch { /* ignore */ }
 }
 
-module.exports = { db, DB_FILE, DATA_DIR, all, get, run, tx, hashPassword, checkPassword, getConfig, log, addDays };
+module.exports = { ISENCOES, db, DB_FILE, DATA_DIR, all, get, run, tx, hashPassword, checkPassword, getConfig, log, addDays };

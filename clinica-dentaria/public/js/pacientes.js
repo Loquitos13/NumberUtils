@@ -29,12 +29,17 @@ async function editPaciente(id, onSaved) {
   const lk = L();
   const p = id ? await GET('t/pacientes/' + id) : { sms_ok: 1, email_ok: 1, ativo: 1 };
   const body = `<form class="form-grid" onsubmit="return false">
-    ${fld('Nome completo *', inp('nome', p.nome, 'required'), 's3')}${fld('N.º processo', inp('numero', p.numero, 'type="number" placeholder="automático"'))}
+    ${fld('Título', sel('titulo', optsArr(['', 'Sr.', 'Sra.', 'Dr.', 'Dra.', 'Eng.', 'Prof.', 'Criança'], p.titulo)))}${fld('Nome completo *', inp('nome', p.nome, 'required'), 's3')}
+    ${fld('N.º processo', inp('numero', p.numero, 'type="number" placeholder="automático"'))}${fld('ID externo', inp('id_externo', p.id_externo, 'placeholder="ex.: n.º no sistema antigo"'))}
     ${fld('Data de nascimento', inp('data_nasc', p.data_nasc, 'type="date"'))}${fld('Género', sel('genero', optsArr([['', '—'], ['F', 'Feminino'], ['M', 'Masculino'], ['O', 'Outro']], p.genero)))}
     ${fld('NIF', inp('nif', p.nif, 'maxlength="9" inputmode="numeric"'))}${fld('N.º Utente SNS', inp('sns', p.sns))}
     ${fld('Telemóvel', inp('telemovel', p.telemovel, 'type="tel"'))}${fld('Telefone', inp('telefone', p.telefone, 'type="tel"'))}${fld('E-mail', inp('email', p.email, 'type="email"'), 's2')}
     ${fld('Morada', inp('morada', p.morada), 's2')}${fld('Código postal', inp('cod_postal', p.cod_postal, 'placeholder="0000-000"'))}${fld('Localidade', inp('localidade', p.localidade))}
     ${fld('Cartão de Cidadão', inp('cc', p.cc))}${fld('Profissão', inp('profissao', p.profissao))}
+    ${fld('Nacionalidade', inp('nacionalidade', p.nacionalidade ?? (id ? '' : 'Portuguesa'), 'list="dl-nac"'))}${fld('Idioma', sel('idioma', optsArr([['', '—'], ['PT', 'Português'], ['EN', 'Inglês'], ['FR', 'Francês'], ['ES', 'Espanhol'], ['DE', 'Alemão'], ['IT', 'Italiano']], p.idioma)))}
+    ${fld('Contacto de emergência (nome)', inp('contacto_emergencia', p.contacto_emergencia))}${fld('Telefone de emergência', inp('telefone_emergencia', p.telefone_emergencia, 'type="tel"'))}
+    <div class="s2">${pacField('agregado_id', p.agregado_id, '', 'Agregado familiar — titular (deixe vazio se for o titular)')}</div>
+    <datalist id="dl-nac">${['Portuguesa', 'Brasileira', 'Angolana', 'Cabo-verdiana', 'Espanhola', 'Francesa', 'Inglesa', 'Ucraniana', 'Romena'].map(n => `<option value="${n}">`).join('')}</datalist>
     ${fld('Entidade / seguro', sel('entidade_id', opts(lk.entidades, p.entidade_id, { empty: '—', only: x => x.ativo })))}${fld('N.º beneficiário', inp('num_beneficiario', p.num_beneficiario))}
     ${fld('Médico assistente', sel('medico_id', opts(lk.medicos, p.medico_id, { empty: '—', only: x => x.ativo })), 's2')}
     ${fld('Razão da 1.ª visita', sel('razao_visita_id', opts(lk.razoes, p.razao_visita_id, { empty: '—', label: 'descricao', only: x => x.ativo })), 's2')}
@@ -45,10 +50,32 @@ async function editPaciente(id, onSaved) {
     const f = readForm($('form', c.body));
     if (!f.nome.trim()) throw new Error('O nome é obrigatório');
     if (f.rgpd_consent && !p.rgpd_consent) f.rgpd_data = isoDate();
-    for (const k of ['entidade_id', 'medico_id', 'razao_visita_id']) f[k] = f[k] ? Number(f[k]) : null;
+    for (const k of ['entidade_id', 'medico_id', 'razao_visita_id', 'agregado_id']) f[k] = f[k] ? Number(f[k]) : null;
     const r = id ? await PUT('t/pacientes/' + id, f) : await POST('t/pacientes', f);
     toast('Paciente guardado'); onSaved && onSaved(r);
-  } }] });
+  } }], onOpen: async c => {
+    const form = $('form', c.body);
+    bindPacField(form, 'agregado_id');
+    if (p.agregado_id) { const t = await GET('t/pacientes/' + p.agregado_id).catch(() => null); if (t) $('[data-pac="agregado_id"]', form).value = t.nome; }
+  } });
+}
+
+// redimensiona a foto no browser (máx. 320 px) antes de guardar
+function escolherFoto(pid) {
+  const i = document.createElement('input'); i.type = 'file'; i.accept = 'image/*';
+  i.onchange = () => {
+    const file = i.files[0]; if (!file) return;
+    const img = new Image();
+    img.onload = async () => {
+      const k = Math.min(1, 320 / Math.max(img.width, img.height));
+      const cv = document.createElement('canvas'); cv.width = Math.round(img.width * k); cv.height = Math.round(img.height * k);
+      cv.getContext('2d').drawImage(img, 0, 0, cv.width, cv.height);
+      await act(() => PUT('t/pacientes/' + pid, { foto: cv.toDataURL('image/jpeg', 0.85) }), 'Foto atualizada');
+      URL.revokeObjectURL(img.src); render();
+    };
+    img.src = URL.createObjectURL(file);
+  };
+  i.click();
 }
 
 // ---------- ficha do paciente ----------
@@ -62,13 +89,14 @@ route('paciente', async (view, [id, tab = 'resumo']) => {
     a.hipertensao && 'Hipertensão', a.gravidez && 'Gravidez', a.hepatite && 'Hepatite'].filter(Boolean);
   view.innerHTML = `<div class="card" style="padding:14px 16px">
     <div class="row">
-      <div style="font-size:2rem">${p.genero === 'M' ? '👨' : p.genero === 'F' ? '👩' : '🧑'}</div>
-      <div><h1 style="margin:0">${esc(p.nome)} ${p.ativo ? '' : '<span class="badge">Inativo</span>'}</h1>
+      <div id="pf-foto" title="Clique para alterar a foto" style="cursor:pointer">${p.foto ? `<img src="${esc(p.foto)}" alt="" style="width:64px;height:64px;object-fit:cover;border-radius:50%">`
+        : `<div style="width:64px;height:64px;border-radius:50%;background:var(--brand-soft);display:flex;align-items:center;justify-content:center;font-size:2rem">${p.genero === 'M' ? '👨' : p.genero === 'F' ? '👩' : '🧑'}</div>`}</div>
+      <div><h1 style="margin:0">${p.titulo && p.titulo !== 'Criança' ? `<span class="muted" style="font-weight:400">${esc(p.titulo)}</span> ` : ''}${esc(p.nome)} ${p.ativo ? '' : '<span class="badge">Inativo</span>'}</h1>
         <div class="muted small">Processo n.º ${esc(p.numero)} · ${p.data_nasc ? `${fmtDate(p.data_nasc)} (${idade(p.data_nasc)} anos)` : 'sem data de nascimento'}
         ${p.nif ? ' · NIF ' + esc(p.nif) : ''}${p.telemovel ? ' · 📱 ' + esc(p.telemovel) : ''}${p.entidade_nome ? ' · ' + esc(p.entidade_nome) : ''}</div></div>
       <div class="spacer"></div>
       <div class="right"><div class="muted small">Saldo</div><div class="bold ${p.saldo.saldo > 0 ? 'danger' : 'ok'}" style="font-size:1.2rem">${eur(p.saldo.saldo)}</div></div>
-      <button id="pf-marc" class="primary">＋ Marcação</button><button id="pf-edit">✎ Editar</button><button id="pf-print">🖨</button>
+      <button id="pf-marc" class="primary">＋ Marcação</button><button id="pf-vaga" title="Procurar vaga">🔎</button><button id="pf-esp" title="Lista de espera">⏳</button><button id="pf-edit">✎ Editar</button><button id="pf-print">🖨</button>
     </div>
     ${alertas.length ? `<div class="alert danger" style="margin:10px 0 0">⚠ ${alertas.map(esc).join(' · ')}</div>` : ''}
     ${!p.rgpd_consent ? '<div class="alert" style="margin:10px 0 0">Sem consentimento RGPD registado.</div>' : ''}
@@ -78,6 +106,9 @@ route('paciente', async (view, [id, tab = 'resumo']) => {
   $$('.tabs button', view).forEach(b => b.onclick = () => go(`#/paciente/${id}/${b.dataset.t}`));
   $('#pf-edit').onclick = () => editPaciente(p.id, () => render());
   $('#pf-marc').onclick = () => openMarcacao({ paciente: { id: p.id, nome: p.nome }, medico_id: p.medico_id });
+  $('#pf-vaga').onclick = () => procurarVaga({ medico_id: p.medico_id, paciente: { id: p.id, nome: p.nome } });
+  $('#pf-esp').onclick = () => editEspera(null, { id: p.id, nome: p.nome });
+  $('#pf-foto').onclick = () => escolherFoto(p.id);
   $('#pf-print').onclick = () => imprimirFicha(p);
   const body = $('#pf-body');
   const fns = { resumo: tabResumo, odontograma: tabOdonto, tratamentos: tabTratamentos, anamnese: tabAnamnese, notas: tabNotas,
@@ -93,14 +124,22 @@ async function tabResumo(el, p) {
       <div>${esc(p.morada)}<br>${esc(p.cod_postal)} ${esc(p.localidade)}</div>
       <div style="margin-top:8px">📱 ${esc(p.telemovel || '—')} ${p.telefone ? '· ☎ ' + esc(p.telefone) : ''}<br>✉ ${esc(p.email || '—')}</div>
       <div class="muted small" style="margin-top:8px">SNS: ${esc(p.sns || '—')} · CC: ${esc(p.cc || '—')}<br>Profissão: ${esc(p.profissao || '—')}</div>
-      <div class="muted small" style="margin-top:8px">Médico: ${esc(p.medico_nome || '—')}<br>1.ª visita: ${esc(p.razao_nome || '—')}<br>Criado em ${fmtDate(p.criado_em)}</div>
+      <div class="muted small" style="margin-top:8px">Médico: ${esc(p.medico_nome || '—')}<br>1.ª visita: ${esc(p.razao_nome || '—')}<br>Criado em ${fmtDate(p.criado_em)}${p.alterado_em ? `<br>Alterado por ${esc(p.alterado_por_nome || '—')} em ${esc(p.alterado_em)}` : ''}</div>
+      ${p.contacto_emergencia || p.telefone_emergencia ? `<div style="margin-top:8px">🚨 Emergência: ${esc(p.contacto_emergencia || '')} ${esc(p.telefone_emergencia || '')}</div>` : ''}
+      ${p.nacionalidade || p.idioma ? `<div class="muted small" style="margin-top:4px">${esc(p.nacionalidade || '')}${p.idioma ? ' · idioma ' + esc(p.idioma) : ''}</div>` : ''}
+      ${p.agregado.length || p.titular_nome ? `<h3 style="margin-top:14px">Agregado familiar</h3>${p.titular_nome ? '' : '<div class="muted small">Titular do agregado</div>'}
+        ${p.agregado.map(m => `<div><a href="#/paciente/${m.id}">${esc(m.nome)}</a> <span class="muted small">${m.id === p.agregado_id ? '(titular)' : ''}${m.data_nasc ? ' ' + idade(m.data_nasc) + ' anos' : ''}</span></div>`).join('')}` : ''}
       ${p.notas ? `<div class="alert info" style="margin-top:10px">${esc(p.notas)}</div>` : ''}</div>
     <div class="card"><h3>Consultas</h3>
       <div><span class="muted">Próxima:</span> ${p.proxima ? `<b>${fmtDT(p.proxima.inicio)}</b> · ${esc(p.proxima.medico_nome)}<br><span class="small">${esc(p.proxima.servico_nome || '')} · ${esc(p.proxima.estado_nome)}</span>` : '—'}</div>
       <div style="margin-top:10px"><span class="muted">Última:</span> ${p.ultima ? `${fmtDT(p.ultima.inicio)} · ${esc(p.ultima.medico_nome)} · ${esc(p.ultima.estado_nome)}` : '—'}</div>
       <h3 style="margin-top:16px">Financeiro</h3>
       <div class="grid g3 small"><div><div class="muted">Faturado</div><b>${eur(p.saldo.faturado)}</b></div><div><div class="muted">Pago</div><b>${eur(p.saldo.pago)}</b></div>
-      <div><div class="muted">Em dívida</div><b class="${p.saldo.saldo > 0 ? 'danger' : ''}">${eur(p.saldo.saldo)}</b></div></div></div>
+      <div><div class="muted">Em dívida</div><b class="${p.saldo.saldo > 0 ? 'danger' : ''}">${eur(p.saldo.saldo)}</b></div>
+      <div><div class="muted">Crédito</div><b class="ok">${eur(p.saldo.saldo < 0 ? -p.saldo.saldo : 0)}</b></div><div><div class="muted">Por realizar</div><b>${eur(p.por_realizar)}</b></div></div>
+      <h3 style="margin-top:16px">Assiduidade</h3>
+      <div class="grid g3 small"><div><div class="muted">Realizadas</div><b>${p.stats.realizadas || 0}</b></div><div><div class="muted">Faltas</div><b class="${p.stats.faltas ? 'danger' : ''}">${p.stats.faltas || 0}</b></div>
+      <div><div class="muted">Desmarcadas</div><b>${p.stats.inativas || 0}</b></div><div><div class="muted">Futuras</div><b>${p.stats.futuras || 0}</b></div><div><div class="muted">Total</div><b>${p.stats.total || 0}</b></div></div></div>
     <div class="card"><h3>Plano de tratamento (${plan.length})</h3>
       ${plan.length ? plan.slice(0, 8).map(t => `<div class="row between small" style="padding:3px 0;border-bottom:1px solid var(--line2)"><span>${t.dente ? `<b>${esc(t.dente)}</b> ` : ''}${esc(t.descricao)}</span><span>${eur(t.preco * (1 - (t.desconto_pct || 0) / 100))}</span></div>`).join('')
         + `<div class="row between" style="margin-top:6px"><b>Total</b><b>${eur(plan.reduce((s, t) => s + t.preco * (1 - (t.desconto_pct || 0) / 100), 0))}</b></div>` : '<div class="muted">Sem tratamentos planeados</div>'}
@@ -243,7 +282,7 @@ async function tabOdonto(el, p) {
       const sv = byId(lk.servicos, $('#od-serv').value); if (!sv) return toast('Escolha o tratamento', true);
       const ent = byId(lk.entidades, p.entidade_id);
       await act(() => POST('t/tratamentos', { paciente_id: p.id, medico_id: Number($('#od-med').value), servico_id: sv.id, descricao: sv.nome, dente: n, faces: faces(),
-        estado: $('#od-est').value, data: isoDate(), preco: sv.preco, iva: sv.iva, desconto_pct: ent?.desconto_pct || 0 }), 'Tratamento adicionado');
+        estado: $('#od-est').value, data: isoDate(), preco: sv.preco, iva: sv.iva, iva_id: sv.iva_id, desconto_pct: ent?.desconto_pct || 0 }), 'Tratamento adicionado');
       tabOdonto(el, p);
     };
     $$('[data-dc]', panel).forEach(b => b.onclick = async () => { await DEL('t/dentes_condicoes/' + b.dataset.dc); tabOdonto(el, p); });
@@ -289,7 +328,7 @@ async function tabTratamentos(el, p) {
   $('#tr-fsel').onclick = () => { const l = trat.filter(t => selIds().includes(t.id) && !t.documento_id); if (!l.length) return toast('Selecione tratamentos por faturar', true); faturar(l); };
   $('#tr-orc').onclick = () => {
     const plan = trat.filter(t => t.estado === 'planeado' && !t.orcamento_id);
-    editOrcamento(null, { paciente: p, linhas: plan.map(t => ({ servico_id: t.servico_id, tratamento_id: t.id, descricao: t.descricao, dente: t.dente, qtd: 1, preco: t.preco, desconto_pct: t.desconto_pct, iva: t.iva })) });
+    editOrcamento(null, { paciente: p, linhas: plan.map(t => ({ servico_id: t.servico_id, tratamento_id: t.id, descricao: t.descricao, dente: t.dente, qtd: 1, preco: t.preco, desconto_pct: t.desconto_pct, iva: t.iva, iva_id: t.iva_id })) });
   };
 }
 
@@ -303,17 +342,18 @@ function editTratamento(t, p, onSaved) {
     ${fld('Estado', sel('estado', optsArr([['planeado', 'Planeado'], ['realizado', 'Realizado']], t.estado)))}${fld('Data', inp('data', t.data, 'type="date"'))}
     ${fld('Médico', sel('medico_id', opts(lk.medicos, t.medico_id, { only: x => x.ativo })), 's2')}
     ${fld('Preço (€)', inp('preco', t.preco ?? '', 'type="number" step="0.01"'))}${fld('Desconto %', inp('desconto_pct', t.desconto_pct ?? ent?.desconto_pct ?? 0, 'type="number" step="0.01"'))}
-    ${fld('IVA %', inp('iva', t.iva ?? 0, 'type="number" step="0.01"'))}${fld('Notas', inp('notas', t.notas), 's3')}
+    ${fld('IVA', sel('iva_id', ivaOpts(ivaFix({ ...t }).iva_id)))}${fld('Notas', inp('notas', t.notas), 's3')}
   </form>`, buttons: [{ label: 'Cancelar' }, { label: 'Guardar', cls: 'primary', onClick: async c => {
     const f = readForm($('form', c.body));
     if (!f.descricao) throw new Error('Indique a descrição');
     f.paciente_id = p.id; f.servico_id = f.servico_id ? Number(f.servico_id) : null; f.medico_id = Number(f.medico_id);
+    f.iva_id = Number(f.iva_id); f.iva = byId(L().ivas, f.iva_id)?.taxa ?? 0;
     f.faces = (f.faces || '').toUpperCase().replace(/[^OVLMDP]/g, '').replace(/P/g, 'L');
     t.id ? await PUT('t/tratamentos/' + t.id, f) : await POST('t/tratamentos', f);
     toast('Tratamento guardado'); onSaved();
   } }], onOpen: c => {
     const form = $('form', c.body);
-    form.servico_id.onchange = () => { const s = byId(lk.servicos, form.servico_id.value); if (s) { form.descricao.value = s.nome; form.preco.value = s.preco; form.iva.value = s.iva; } };
+    form.servico_id.onchange = () => { const s = byId(lk.servicos, form.servico_id.value); if (s) { form.descricao.value = s.nome; form.preco.value = s.preco; if (s.iva_id) form.iva_id.value = s.iva_id; } };
   } });
 }
 

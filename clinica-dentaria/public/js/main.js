@@ -2,7 +2,7 @@
 /* Arranque, menu, login e atalhos globais */
 const NAV = [
   ['inicio', '🏠', 'Início'], ['agenda', '📅', 'Agenda'], ['pacientes', '👥', 'Pacientes'], ['faturacao', '🧾', 'Faturação'],
-  ['orcamentos', '📄', 'Orçamentos'], ['proteses', '🦷', 'Próteses'], ['stocks', '📦', 'Stocks'], ['estatisticas', '📊', 'Estatísticas'],
+  ['orcamentos', '📄', 'Orçamentos'], ['proteses', '🦷', 'Próteses'], ['stocks', '📦', 'Stocks'], ['listagens', '📋', 'Listagens'], ['estatisticas', '📊', 'Estatísticas'],
   ['comunicacao', '✉', 'Comunicação'], 'sep', ['config', '⚙', 'Configuração'],
 ];
 

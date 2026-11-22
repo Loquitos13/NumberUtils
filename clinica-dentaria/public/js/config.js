@@ -1,7 +1,7 @@
 'use strict';
 /* Configuração: clínica, agenda, tabelas de referência, utilizadores, registos, cópias de segurança */
 const CFG_SECTIONS = [
-  ['clinica', 'Clínica'], ['agenda', 'Agenda e feriados'], ['medicos', 'Médicos'], ['servicos', 'Tratamentos e preços'], ['especialidades', 'Especialidades'],
+  ['clinica', 'Empresa / clínica'], ['agenda', 'Agenda e feriados'], ['ivas', 'Tabela de IVA'], ['medicos', 'Médicos'], ['servicos', 'Tratamentos e preços'], ['especialidades', 'Especialidades'],
   ['gabinetes', 'Gabinetes'], ['estados', 'Estados das consultas'], ['razoes', 'Razões 1.ª visita'], ['entidades', 'Entidades / seguros'],
   ['laboratorios', 'Laboratórios'], ['armazens', 'Armazéns'], ['sms', 'Modelos de SMS'], ['utilizadores', 'Utilizadores'], ['registos', 'Registos'], ['backup', 'Cópia de segurança'],
 ];
@@ -13,8 +13,8 @@ const CRUD_DEFS = {
     { k: 'telefone', h: 'Telefone' }, { k: 'email', h: 'E-mail', span: 2 }, { k: 'cor', h: 'Cor', t: 'color' }, { k: 'comissao_pct', h: 'Comissão %', t: 'num' }, { k: 'ativo', h: 'Ativo', t: 'bool' }] },
   servicos: { table: 'servicos', title: 'Tratamento', cols: [{ k: 'codigo', h: 'Código' }, { k: 'nome', h: 'Nome', req: 1, span: 3 },
     { k: 'especialidade_id', h: 'Especialidade', t: 'sel', list: () => L().especialidades, span: 2 }, { k: 'preco', h: 'Preço €', t: 'num' }, { k: 'iva', h: 'IVA %', t: 'num' },
-    { k: 'duracao_min', h: 'Duração (min)', t: 'num' }, { k: 'por_dente', h: 'Por dente', t: 'bool' }, { k: 'ativo', h: 'Ativo', t: 'bool' }] },
-  especialidades: { table: 'especialidades', title: 'Especialidade', cols: [{ k: 'nome', h: 'Nome', req: 1, span: 3 }, { k: 'ativo', h: 'Ativo', t: 'bool' }] },
+    { k: 'iva_id', h: 'IVA', t: 'sel', list: () => L().ivas, lab: ivaLabel }, { k: 'duracao_min', h: 'Duração (min)', t: 'num' }, { k: 'por_dente', h: 'Por dente', t: 'bool' }, { k: 'ativo', h: 'Ativo', t: 'bool' }] },
+  especialidades: { table: 'especialidades', title: 'Especialidade', cols: [{ k: 'nome', h: 'Nome', req: 1, span: 2 }, { k: 'abreviatura', h: 'Abreviatura' }, { k: 'ativo', h: 'Ativo', t: 'bool' }] },
   gabinetes: { table: 'gabinetes', title: 'Gabinete', cols: [{ k: 'nome', h: 'Nome', req: 1, span: 3 }, { k: 'ativo', h: 'Ativo', t: 'bool' }] },
   estados: { table: 'estados', title: 'Estado', cols: [{ k: 'nome', h: 'Nome', req: 1, span: 2 }, { k: 'cor', h: 'Cor', t: 'color' },
     { k: 'categoria', h: 'Categoria', t: 'opt', opts: [['OUTRAS', 'Outras (ativa)'], ['REALIZADAS', 'Realizada'], ['FALTAS', 'Falta'], ['INATIVAS', 'Inativa (desmarcada/cancelada)']] },
@@ -22,6 +22,11 @@ const CRUD_DEFS = {
   razoes: { table: 'razoes_visita', title: 'Razão da 1.ª visita', cols: [{ k: 'abreviatura', h: 'Abreviatura', req: 1 }, { k: 'descricao', h: 'Descrição', span: 2 }, { k: 'ativo', h: 'Ativo', t: 'bool' }] },
   entidades: { table: 'entidades', title: 'Entidade', cols: [{ k: 'nome', h: 'Nome', req: 1, span: 2 }, { k: 'nif', h: 'NIF' }, { k: 'desconto_pct', h: 'Desconto %', t: 'num' }, { k: 'ativo', h: 'Ativo', t: 'bool' }] },
   laboratorios: { table: 'laboratorios', title: 'Laboratório', cols: [{ k: 'nome', h: 'Nome', req: 1, span: 2 }, { k: 'contacto', h: 'Contacto' }, { k: 'telefone', h: 'Telefone' }, { k: 'email', h: 'E-mail', span: 2 }, { k: 'ativo', h: 'Ativo', t: 'bool' }] },
+  ivas: { table: 'ivas', title: 'Taxa de IVA', cols: [{ k: 'taxa', h: 'Taxa %', t: 'num', req: 0 }, { k: 'descricao', h: 'Descrição', span: 3 },
+    { k: 'regiao', h: 'Região', t: 'opt', opts: [['PT', 'PT — Portugal continental'], ['PT-AC', 'PT-AC — Açores'], ['PT-MA', 'PT-MA — Madeira']] },
+    { k: 'codigo', h: 'Código', t: 'opt', opts: [['ISE', 'ISE — Isenta'], ['RED', 'RED — Reduzida'], ['INT', 'INT — Intermédia'], ['NOR', 'NOR — Normal'], ['OUT', 'OUT — Outros']] },
+    { k: 'isencao_cod', h: 'Cód. isenção', t: 'opt', opts: () => [['', '—'], ...L().isencoes.map(([c, m]) => [c, `${c} — ${m}`])] },
+    { k: 'isencao_motivo', h: 'Artigo / motivo de isenção', span: 3, help: 'Obrigatório nas taxas de 0%. Aparece impresso nos documentos.' }, { k: 'ativo', h: 'Ativo', t: 'bool' }] },
   armazens: { table: 'armazens', title: 'Armazém', cols: [{ k: 'nome', h: 'Nome', req: 1, span: 3 }, { k: 'ativo', h: 'Ativo', t: 'bool' }] },
   sms: { table: 'sms_modelos', title: 'Modelo de SMS', cols: [{ k: 'nome', h: 'Nome', req: 1, span: 3 }, { k: 'ativo', h: 'Ativo', t: 'bool' },
     { k: 'texto', h: 'Texto', t: 'area', span: 4, help: 'Variáveis: {nome} {primeiro_nome} {data} {hora} {medico} {servico} {clinica} {telefone_clinica}' }] },
@@ -31,8 +36,8 @@ function cellView(c, r) {
   const v = r[c.k];
   if (c.t === 'bool') return v ? '✔' : '<span class="muted">—</span>';
   if (c.t === 'color') return `<span class="dot" style="background:${esc(v)}"></span>`;
-  if (c.t === 'sel') return esc(byId(c.list(), v)?.nome || '');
-  if (c.t === 'opt') return esc((c.opts.find(o => o[0] === v) || [])[1] || v);
+  if (c.t === 'sel') { const o = byId(c.list(), v); return esc(o ? (c.lab ? c.lab(o) : o.nome) : ''); }
+  if (c.t === 'opt') { const os = typeof c.opts === 'function' ? c.opts() : c.opts; return esc(((os.find(o => o[0] === v) || [])[1] || v || '').split(' — ')[0]); }
   if (c.k === 'preco') return eur(v);
   if (c.t === 'area') return `<span class="small">${esc(v)}</span>`;
   return esc(v);
@@ -41,8 +46,8 @@ function cellInput(c, v) {
   if (c.t === 'bool') return `<div style="padding-top:6px">${chk(c.k, v, c.h)}</div>`;
   if (c.t === 'color') return inp(c.k, v || '#2563eb', 'type="color"');
   if (c.t === 'num') return inp(c.k, v ?? 0, 'type="number" step="any"');
-  if (c.t === 'sel') return sel(c.k, opts(c.list(), v, { empty: '—' }));
-  if (c.t === 'opt') return sel(c.k, optsArr(c.opts, v));
+  if (c.t === 'sel') return sel(c.k, opts(c.list(), v, { empty: '—', label: c.lab || 'nome' }));
+  if (c.t === 'opt') return sel(c.k, optsArr(typeof c.opts === 'function' ? c.opts() : c.opts, v));
   if (c.t === 'area') return txt(c.k, v);
   return inp(c.k, v);
 }
@@ -66,6 +71,11 @@ async function crudSection(body, def) {
     buttons.push({ label: 'Cancelar' }, { label: 'Guardar', cls: 'primary', onClick: async c => {
       const f = readForm($('form', c.body));
       for (const col of def.cols) { if (col.req && !f[col.k]) throw new Error(`Preencha: ${col.h}`); if (col.t === 'sel') f[col.k] = f[col.k] ? Number(f[col.k]) : null; }
+      if (def.table === 'ivas') {
+        if (f.taxa === 0 && !f.isencao_cod) throw new Error('As taxas de 0% precisam de código e motivo de isenção');
+        if (f.isencao_cod && !f.isencao_motivo) f.isencao_motivo = (L().isencoes.find(i => i[0] === f.isencao_cod) || [])[1];
+      }
+      if (def.table === 'servicos' && f.iva_id) f.iva = byId(L().ivas, f.iva_id)?.taxa ?? 0;
       isNew ? await POST('t/' + def.table, f) : await PUT(`t/${def.table}/${r.id}`, f);
       toast('Guardado'); await refreshLookups(); render();
     } });
@@ -90,11 +100,20 @@ route('config', async (view, [sec = 'clinica']) => {
 
   if (sec === 'clinica') {
     body.innerHTML = `<form class="form-grid" onsubmit="return false">
-      ${fld('Nome da clínica', inp('clinica_nome', c.clinica_nome), 's2')}${fld('NIF', inp('clinica_nif', c.clinica_nif))}${fld('N.º registo ERS', inp('clinica_ers', c.clinica_ers))}
+      <div class="s4"><h3>Identificação</h3></div>
+      ${fld('Nome / denominação social', inp('clinica_nome', c.clinica_nome), 's3')}${fld('NIF', inp('clinica_nif', c.clinica_nif, 'maxlength="9"'))}
       ${fld('Morada', inp('clinica_morada', c.clinica_morada), 's2')}${fld('Código postal e localidade', inp('clinica_cp', c.clinica_cp), 's2')}
-      ${fld('Telefone', inp('clinica_telefone', c.clinica_telefone))}${fld('E-mail', inp('clinica_email', c.clinica_email))}
-      ${fld('IVA por omissão (%)', inp('iva_default', c.iva_default, 'type="number"'))}${fld('Validade dos orçamentos (dias)', inp('validade_orcamento_dias', c.validade_orcamento_dias, 'type="number"'))}
-      ${fld('Rodapé dos documentos', txt('doc_rodape', c.doc_rodape), 's4')}
+      ${fld('Telefone', inp('clinica_telefone', c.clinica_telefone))}${fld('Telemóvel', inp('clinica_telemovel', c.clinica_telemovel))}
+      ${fld('E-mail', inp('clinica_email', c.clinica_email))}${fld('Website', inp('clinica_website', c.clinica_website))}
+      <div class="s4"><h3 style="margin-top:8px">Registo comercial e bancário</h3></div>
+      ${fld('Capital social', inp('clinica_capital', c.clinica_capital, 'placeholder="ex.: 5.000,00 €"'))}${fld('Conservatória (local CRC)', inp('clinica_crc', c.clinica_crc))}
+      ${fld('N.º registo ERS', inp('clinica_ers', c.clinica_ers))}${fld('IBAN', inp('clinica_iban', c.clinica_iban))}
+      <div class="s4"><h3 style="margin-top:8px">Faturação</h3></div>
+      ${fld('Região fiscal de IVA', sel('clinica_regiao_iva', optsArr([['PT', 'Portugal continental'], ['PT-AC', 'Açores'], ['PT-MA', 'Madeira']], c.clinica_regiao_iva || 'PT')))}
+      ${fld('Taxa de IVA por omissão (%)', inp('iva_default', c.iva_default, 'type="number"'))}
+      ${fld('Validade dos orçamentos (dias)', inp('validade_orcamento_dias', c.validade_orcamento_dias, 'type="number"'))}
+      ${fld('Representante legal (temas fiscais)', inp('representante_nome', c.representante_nome))}${fld('NIF do representante', inp('representante_nif', c.representante_nif))}<div></div>
+      ${fld('Rodapé / notas dos documentos', txt('doc_rodape', c.doc_rodape), 's4')}
       <div class="s4 row end"><button class="primary" id="cf-save">Guardar</button></div></form>`;
     $('#cf-save').onclick = () => saveCfg($('form', body));
     return;
@@ -106,6 +125,7 @@ route('config', async (view, [sec = 'clinica']) => {
     body.innerHTML = `<form class="form-grid" onsubmit="return false" id="cf-ag">
       ${fld('Hora de abertura', inp('agenda_inicio', c.agenda_inicio, 'type="time"'))}${fld('Hora de fecho', inp('agenda_fim', c.agenda_fim, 'type="time"'))}
       ${fld('Intervalo da agenda (min)', sel('agenda_intervalo', optsArr(['5', '10', '15', '20', '30', '60'], c.agenda_intervalo)))}<div></div>
+      ${fld('Mensagem global (aparece na agenda de todos)', txt('agenda_mensagem', c.agenda_mensagem), 's4')}
       <div class="s4"><label class="f">Dias de funcionamento</label>${[1, 2, 3, 4, 5, 6, 0].map(d => `<label class="check"><input type="checkbox" data-dia="${d}" ${dias.includes(String(d)) ? 'checked' : ''}> ${DIAS[d]}</label>`).join('')}</div>
       <div class="s4"><label class="f">Feriados móveis calculados automaticamente</label>
         ${chk('feriado_pascoa', c.feriado_pascoa === '1', 'Páscoa')}${chk('feriado_sexta_santa', c.feriado_sexta_santa === '1', 'Sexta-feira Santa')}

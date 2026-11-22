@@ -14,6 +14,7 @@ const PUBLIC = path.join(__dirname, 'public');
 // ---------- utilitários ----------
 class HttpError extends Error { constructor(status, msg) { super(msg); this.status = status; } }
 const r2 = n => Math.round((Number(n) || 0) * 100) / 100;
+const agora = () => { const d = new Date(); return `${today()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; };
 const today = () => {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -56,23 +57,27 @@ function requireAdmin(u) { if (!isAdmin(u)) throw new HttpError(403, 'Apenas adm
 // ---------- CRUD genérico ----------
 // writable: colunas editáveis; admin: escrita apenas para administradores
 const TABLES = {
-  especialidades: { cols: ['nome', 'ativo'], admin: true, order: 'nome' },
+  especialidades: { cols: ['nome', 'abreviatura', 'ativo'], admin: true, order: 'nome' },
   medicos: { cols: ['nome', 'abreviatura', 'especialidade_id', 'cedula', 'nif', 'email', 'telefone', 'cor', 'comissao_pct', 'ativo'], admin: true, order: 'nome' },
   gabinetes: { cols: ['nome', 'ativo'], admin: true, order: 'nome' },
   estados: { cols: ['nome', 'cor', 'categoria', 'ordem', 'ativo'], admin: true, order: 'ordem, id' },
   razoes_visita: { cols: ['abreviatura', 'descricao', 'ativo'], admin: true, order: 'abreviatura' },
   feriados: { cols: ['nome', 'data', 'fixo', 'ativo'], admin: true, order: 'data' },
   entidades: { cols: ['nome', 'nif', 'desconto_pct', 'ativo'], admin: true, order: 'nome' },
-  servicos: { cols: ['codigo', 'nome', 'especialidade_id', 'preco', 'iva', 'duracao_min', 'por_dente', 'ativo'], admin: true, order: 'codigo, nome' },
+  servicos: { cols: ['codigo', 'nome', 'especialidade_id', 'preco', 'iva', 'iva_id', 'duracao_min', 'por_dente', 'ativo'], admin: true, order: 'codigo, nome' },
   laboratorios: { cols: ['nome', 'contacto', 'telefone', 'email', 'ativo'], admin: false, order: 'nome' },
   armazens: { cols: ['nome', 'ativo'], admin: true, order: 'id' },
   produtos: { cols: ['codigo', 'nome', 'familia', 'unidade', 'stock_min', 'stock_ideal', 'preco_custo', 'fornecedor', 'ativo'], admin: false, order: 'nome' },
   sms_modelos: { cols: ['nome', 'texto', 'ativo'], admin: true, order: 'nome' },
-  pacientes: { cols: ['numero', 'nome', 'data_nasc', 'genero', 'nif', 'sns', 'cc', 'telefone', 'telemovel', 'email', 'morada', 'cod_postal', 'localidade', 'profissao', 'razao_visita_id', 'medico_id', 'entidade_id', 'num_beneficiario', 'notas', 'rgpd_consent', 'rgpd_data', 'sms_ok', 'email_ok', 'ativo'], order: 'nome' },
-  tratamentos: { cols: ['paciente_id', 'medico_id', 'servico_id', 'descricao', 'dente', 'faces', 'estado', 'data', 'preco', 'desconto_pct', 'iva', 'notas', 'orcamento_id', 'marcacao_id'], order: 'data DESC, id DESC' },
+  pacientes: { cols: ['numero', 'nome', 'data_nasc', 'genero', 'nif', 'sns', 'cc', 'telefone', 'telemovel', 'email', 'morada', 'cod_postal', 'localidade', 'profissao', 'razao_visita_id', 'medico_id', 'entidade_id', 'num_beneficiario', 'notas', 'rgpd_consent', 'rgpd_data', 'sms_ok', 'email_ok', 'ativo',
+    'titulo', 'id_externo', 'nacionalidade', 'idioma', 'contacto_emergencia', 'telefone_emergencia', 'foto', 'agregado_id'], order: 'nome' },
+  tratamentos: { cols: ['paciente_id', 'medico_id', 'servico_id', 'descricao', 'dente', 'faces', 'estado', 'data', 'preco', 'desconto_pct', 'iva', 'iva_id', 'notas', 'orcamento_id', 'marcacao_id'], order: 'data DESC, id DESC' },
   dentes_condicoes: { cols: ['paciente_id', 'dente', 'condicao', 'faces', 'notas', 'data'], order: 'dente' },
   notas_clinicas: { cols: ['paciente_id', 'medico_id', 'data', 'texto'], order: 'data DESC, id DESC' },
   proteses: { cols: ['paciente_id', 'medico_id', 'laboratorio_id', 'tipo', 'descricao', 'dentes', 'cor', 'referencia', 'data_emissao', 'data_prevista', 'data_envio', 'data_rececao', 'data_entrega', 'fase', 'custo', 'notas'], order: 'data_emissao DESC, id DESC' },
+  ivas: { cols: ['taxa', 'descricao', 'regiao', 'codigo', 'isencao_cod', 'isencao_motivo', 'ativo'], admin: true, order: 'regiao, taxa' },
+  bloqueios: { cols: ['medico_id', 'inicio', 'fim', 'tipo', 'motivo'], order: 'inicio DESC' },
+  lista_espera: { cols: ['paciente_id', 'medico_id', 'servico_id', 'preferencia', 'notas', 'estado'], order: 'criado_em' },
   movimentos_stock: { cols: ['produto_id', 'armazem_id', 'tipo', 'qtd', 'lote', 'validade', 'data', 'motivo'], order: 'data DESC, id DESC' },
 };
 
@@ -114,6 +119,7 @@ function crud(method, table, id, query, body, user) {
     if (table === 'pacientes') {
       if (!o.nome) throw new HttpError(400, 'O nome é obrigatório');
       if (!o.numero) o.numero = (get('SELECT MAX(numero) m FROM pacientes').m || 0) + 1;
+      o.alterado_por = user.id; o.alterado_em = agora();
       validarNif(o.nif);
     }
     if (table === 'movimentos_stock') {
@@ -128,7 +134,11 @@ function crud(method, table, id, query, body, user) {
   if (!id) throw new HttpError(400, 'Falta o id');
   if (method === 'PUT') {
     const o = pick(body, def.cols);
-    if (table === 'pacientes' && 'nif' in o) validarNif(o.nif);
+    if (table === 'pacientes') {
+      if ('nif' in o) validarNif(o.nif);
+      if (o.agregado_id && Number(o.agregado_id) === Number(id)) o.agregado_id = null;
+      o.alterado_por = user.id; o.alterado_em = agora();
+    }
     update(table, id, o);
     D.log(user.id, `editar ${table}`, `id=${id}`);
     return get(`SELECT * FROM ${table} WHERE id=?`, id);
@@ -202,11 +212,25 @@ function guardarMarcacao(id, body, user) {
     }
     const fer = feriadosAno(Number(m.inicio.slice(0, 4))).find(f => f.data === m.inicio.slice(0, 10));
     if (fer) throw new HttpError(409, `O dia escolhido é feriado (${fer.nome}).`);
+    const bl = get('SELECT * FROM bloqueios WHERE (medico_id=? OR medico_id IS NULL) AND inicio < ? AND fim > ?', m.medico_id, m.fim, m.inicio);
+    if (bl) throw new HttpError(409, `Agenda bloqueada nesse horário (${TIPOS_BLOQ[bl.tipo] || bl.tipo}${bl.motivo ? ': ' + bl.motivo : ''}).`);
   }
+  if (id && o.inicio && o.inicio !== atual.inicio) o.remarcacoes = (atual.remarcacoes || 0) + 1;
+  o.alterado_por = user.id; o.alterado_em = agora();
   if (id) { update('marcacoes', id, o); D.log(user.id, 'editar marcação', `id=${id}`); }
   else { o.criado_por = user.id; id = insert('marcacoes', o); D.log(user.id, 'criar marcação', `id=${id}`); }
   return get(`${AGENDA_SQL} WHERE m.id=?`, id);
 }
+
+const TIPOS_BLOQ = { ferias: 'Férias', congresso: 'Congresso/formação', ausencia: 'Ausência', fecho: 'Clínica fechada', outro: 'Bloqueio' };
+
+// intervalos ocupados (marcações ativas + bloqueios) de um médico num dia
+function ocupacaoDia(medicoId, dia) {
+  const marc = all(`SELECT inicio, fim FROM marcacoes WHERE medico_id=? AND inicio LIKE ? AND estado_id NOT IN (SELECT id FROM estados WHERE categoria IN ('INATIVAS','FALTAS'))`, medicoId, dia + '%');
+  const bl = all('SELECT inicio, fim FROM bloqueios WHERE (medico_id=? OR medico_id IS NULL) AND inicio <= ? AND fim >= ?', medicoId, dia + 'T23:59', dia + 'T00:00');
+  return [...marc, ...bl];
+}
+const hhmm = t => `${String(Math.floor(t / 60)).padStart(2, '0')}:${String(t % 60).padStart(2, '0')}`;
 
 // ---------- documentos (faturação) ----------
 const TIPOS_DOC = { FT: 'Fatura', FR: 'Fatura-Recibo', RC: 'Recibo', NC: 'Nota de Crédito' };
@@ -220,10 +244,21 @@ function proximoNumero(tipo, data) {
   return `${s.prefixo}${n}`;
 }
 
+function resolveIva(l) {
+  let v = l.iva_id ? get('SELECT * FROM ivas WHERE id=?', l.iva_id) : null;
+  if (!v) {
+    const taxa = Number(l.iva) || 0;
+    v = get("SELECT * FROM ivas WHERE ativo=1 AND taxa=? ORDER BY CASE regiao WHEN 'PT' THEN 0 ELSE 1 END, id LIMIT 1", taxa)
+      || { id: null, taxa, isencao_cod: null, isencao_motivo: null };
+  }
+  return v;
+}
 function calcLinha(l) {
-  const qtd = Number(l.qtd) || 1, preco = Number(l.preco) || 0, desc = Number(l.desconto_pct) || 0, iva = Number(l.iva) || 0;
+  const qtd = Number(l.qtd) || 1, preco = Number(l.preco) || 0, desc = Number(l.desconto_pct) || 0;
+  const v = resolveIva(l); const iva = Number(v.taxa) || 0;
   const base = r2(qtd * preco * (1 - desc / 100));
-  return { base, iva: r2(base * iva / 100), qtd, preco, desc, ivaPct: iva };
+  return { base, iva: r2(base * iva / 100), qtd, preco, desc, ivaPct: iva, ivaId: v.id,
+    isCod: iva === 0 ? v.isencao_cod : null, isMot: iva === 0 ? v.isencao_motivo : null };
 }
 
 function criarDocumento(body, user) {
@@ -242,8 +277,9 @@ function criarDocumento(body, user) {
       tipo, numero, paciente_id: body.paciente_id, entidade_id: body.entidade_id || null, medico_id: body.medico_id || null,
       data, total_base: tb, total_iva: ti, total, notas: body.notas || null, user_id: user.id, ref_documento_id: body.ref_documento_id || null,
     });
+    for (const { c } of calc) if (c.ivaPct === 0 && !c.isCod) throw new HttpError(400, 'Linha com IVA a 0% sem motivo de isenção. Configure-o na tabela de IVA.');
     for (const { l, c } of calc) {
-      insert('documento_linhas', { documento_id: docId, servico_id: l.servico_id || null, tratamento_id: l.tratamento_id || null,
+      insert('documento_linhas', { documento_id: docId, iva_id: c.ivaId, isencao_cod: c.isCod, isencao_motivo: c.isMot, servico_id: l.servico_id || null, tratamento_id: l.tratamento_id || null,
         descricao: l.descricao, dente: l.dente || null, qtd: c.qtd, preco: c.preco, desconto_pct: c.desc, iva: c.ivaPct, total: r2(c.base + c.iva) });
       if (l.tratamento_id && tipo !== 'NC') run("UPDATE tratamentos SET documento_id=?, estado=CASE WHEN estado='planeado' THEN 'realizado' ELSE estado END, data=COALESCE(data, ?) WHERE id=?", docId, data, l.tratamento_id);
       if (l.tratamento_id && tipo === 'NC') run('UPDATE tratamentos SET documento_id=NULL WHERE id=?', l.tratamento_id);
@@ -337,7 +373,7 @@ function guardarOrcamento(id, body, user) {
     for (const l of linhas) {
       const c = calcLinha(l);
       insert('orcamento_linhas', { orcamento_id: id, servico_id: l.servico_id || null, tratamento_id: l.tratamento_id || null, descricao: l.descricao, dente: l.dente || null,
-        qtd: c.qtd, preco: c.preco, desconto_pct: c.desc, iva: c.ivaPct });
+        qtd: c.qtd, preco: c.preco, desconto_pct: c.desc, iva: c.ivaPct, iva_id: c.ivaId });
     }
     D.log(user.id, 'guardar orçamento', `id=${id}`);
     return orcamentoCompleto(id);
@@ -462,6 +498,143 @@ function backup(res) {
   s.on('close', () => fs.unlink(tmp, () => {}));
 }
 
+// ---------- listagens ----------
+function listagem(tipo, q) {
+  const de = q.get('de') || today().slice(0, 8) + '01', ate = q.get('ate') || today(), ateF = ate + 'T23:59';
+  const f = k => q.get(k) || null;
+  const M = 'money', D_ = 'date', DT = 'dt', N = 'num';
+  const filtro = (where, params, col, key) => { if (f(key)) { where.push(`${col} = ?`); params.push(f(key)); } };
+  const AG = `SELECT m.*, p.nome paciente_nome, p.numero paciente_numero, p.telemovel, md.nome medico_nome, s.nome servico_nome, e.nome estado_nome,
+    e.categoria, en.nome entidade_nome, u.nome criado_por_nome, g.nome gabinete_nome FROM marcacoes m JOIN pacientes p ON p.id=m.paciente_id
+    LEFT JOIN medicos md ON md.id=m.medico_id LEFT JOIN servicos s ON s.id=m.servico_id LEFT JOIN estados e ON e.id=m.estado_id
+    LEFT JOIN entidades en ON en.id=p.entidade_id LEFT JOIN users u ON u.id=m.criado_por LEFT JOIN gabinetes g ON g.id=m.gabinete_id`;
+  const agCols = [{ k: 'inicio', h: 'Data/hora', t: DT }, { k: 'paciente_nome', h: 'Paciente' }, { k: 'telemovel', h: 'Telemóvel' },
+    { k: 'medico_nome', h: 'Médico' }, { k: 'servico_nome', h: 'Serviço' }, { k: 'gabinete_nome', h: 'Gabinete' }, { k: 'estado_nome', h: 'Estado' }];
+  switch (tipo) {
+    case 'agenda': {
+      const por = f('por') || 'medico';
+      const where = ['m.inicio BETWEEN ? AND ?']; const params = [de, ateF];
+      filtro(where, params, 'm.medico_id', 'medico_id'); filtro(where, params, 'p.entidade_id', 'entidade_id');
+      filtro(where, params, 'm.criado_por', 'user_id'); filtro(where, params, 'm.paciente_id', 'paciente_id');
+      const grupo = { medico: 'medico_nome', entidade: 'entidade_nome', utilizador: 'criado_por_nome', paciente: 'paciente_nome' }[por] || 'medico_nome';
+      const rows = all(`${AG} WHERE ${where.join(' AND ')} ORDER BY ${grupo === 'paciente_nome' ? 'p.nome' : grupo}, m.inicio`, ...params);
+      for (const r of rows) { r.entidade_nome ||= 'Particular'; r.criado_por_nome ||= '—'; }
+      return { titulo: 'Marcações por ' + { medico: 'médico', entidade: 'entidade', utilizador: 'utilizador', paciente: 'paciente' }[por], grupo,
+        cols: [...agCols, { k: 'entidade_nome', h: 'Entidade' }, { k: 'criado_por_nome', h: 'Marcado por' }], rows };
+    }
+    case 'confirmar': {
+      const rows = all(`${AG} WHERE m.inicio BETWEEN ? AND ? AND e.nome IN ('Marcada','A Confirmar') ORDER BY m.inicio`, de, ateF);
+      return { titulo: 'Consultas por confirmar', cols: agCols, rows };
+    }
+    case 'remarcacoes': {
+      const rows = all(`${AG} WHERE m.inicio BETWEEN ? AND ? AND (m.remarcacoes > 0 OR e.categoria='INATIVAS') ORDER BY m.inicio`, de, ateF);
+      return { titulo: 'Remarcações e desmarcações', cols: [...agCols, { k: 'remarcacoes', h: 'N.º remarcações', t: N }, { k: 'notas', h: 'Notas' }], rows };
+    }
+    case 'faltas': {
+      const rows = all(`${AG} WHERE m.inicio BETWEEN ? AND ? AND e.categoria='FALTAS' ORDER BY m.inicio`, de, ateF);
+      return { titulo: 'Faltas', cols: agCols, rows };
+    }
+    case 'ocupacao': {
+      const cfg = D.getConfig(); const toM = h => { const [a, b] = h.split(':').map(Number); return a * 60 + b; };
+      const aberto = toM(cfg.agenda_fim || '20:00') - toM(cfg.agenda_inicio || '08:00');
+      const dias = (cfg.agenda_dias || '1,2,3,4,5').split(',').map(Number);
+      const meds = all('SELECT id, nome FROM medicos WHERE ativo=1 ORDER BY nome').filter(m => !f('medico_id') || String(m.id) === f('medico_id'));
+      const rows = [];
+      for (const md of meds) {
+        let minDisp = 0, minOcup = 0, n = 0;
+        for (let d = new Date(de + 'T12:00:00'); d <= new Date(ate + 'T12:00:00'); d.setDate(d.getDate() + 1)) {
+          const dia = d.toISOString().slice(0, 10);
+          if (!dias.includes(d.getDay()) || feriadosAno(d.getFullYear()).some(x => x.data === dia)) continue;
+          const bl = all('SELECT inicio, fim FROM bloqueios WHERE (medico_id=? OR medico_id IS NULL) AND inicio <= ? AND fim >= ?', md.id, dia + 'T23:59', dia + 'T00:00');
+          const abre = `${dia}T${cfg.agenda_inicio || '08:00'}`, fecha = `${dia}T${cfg.agenda_fim || '20:00'}`;
+          const blMin = bl.reduce((a, b) => { const s0 = b.inicio > abre ? b.inicio : abre, e0 = b.fim < fecha ? b.fim : fecha; return a + Math.max(0, (new Date(e0) - new Date(s0)) / 60000); }, 0);
+          minDisp += Math.max(0, aberto - blMin);
+          const mm = all(`SELECT inicio, fim FROM marcacoes WHERE medico_id=? AND inicio LIKE ? AND estado_id NOT IN (SELECT id FROM estados WHERE categoria IN ('INATIVAS','FALTAS'))`, md.id, dia + '%');
+          n += mm.length; minOcup += mm.reduce((a, m) => a + (new Date(m.fim) - new Date(m.inicio)) / 60000, 0);
+        }
+        rows.push({ medico_nome: md.nome, marcacoes: n, horas_disp: r2(minDisp / 60), horas_ocup: r2(minOcup / 60), taxa: minDisp ? r2(minOcup * 100 / minDisp) : 0 });
+      }
+      return { titulo: 'Taxa de ocupação da agenda', cols: [{ k: 'medico_nome', h: 'Médico' }, { k: 'marcacoes', h: 'Marcações', t: N },
+        { k: 'horas_disp', h: 'Horas disponíveis', t: N }, { k: 'horas_ocup', h: 'Horas marcadas', t: N }, { k: 'taxa', h: 'Ocupação %', t: N }], rows };
+    }
+    case 'ausencias': {
+      const rows = all(`SELECT b.*, COALESCE(md.nome,'Todos (clínica)') medico_nome FROM bloqueios b LEFT JOIN medicos md ON md.id=b.medico_id
+        WHERE b.inicio <= ? AND b.fim >= ? ORDER BY b.inicio`, ateF, de + 'T00:00').map(b => ({ ...b, tipo_nome: TIPOS_BLOQ[b.tipo] || b.tipo }));
+      return { titulo: 'Férias e ausências dos médicos', cols: [{ k: 'medico_nome', h: 'Médico' }, { k: 'tipo_nome', h: 'Tipo' }, { k: 'inicio', h: 'Início', t: DT }, { k: 'fim', h: 'Fim', t: DT }, { k: 'motivo', h: 'Motivo' }], rows };
+    }
+    case 'espera': {
+      const rows = all(`SELECT le.*, p.nome paciente_nome, p.telemovel, md.nome medico_nome, s.nome servico_nome FROM lista_espera le
+        JOIN pacientes p ON p.id=le.paciente_id LEFT JOIN medicos md ON md.id=le.medico_id LEFT JOIN servicos s ON s.id=le.servico_id WHERE le.estado='aguarda' ORDER BY le.criado_em`);
+      return { titulo: 'Lista de espera', cols: [{ k: 'criado_em', h: 'Desde', t: D_ }, { k: 'paciente_nome', h: 'Paciente' }, { k: 'telemovel', h: 'Telemóvel' },
+        { k: 'medico_nome', h: 'Médico' }, { k: 'servico_nome', h: 'Serviço' }, { k: 'preferencia', h: 'Preferência' }, { k: 'notas', h: 'Notas' }], rows };
+    }
+    case 'caixa': {
+      const where = ["pg.estado='ativo'", 'pg.data BETWEEN ? AND ?']; const params = [de, ate];
+      filtro(where, params, 'd.user_id', 'user_id'); filtro(where, params, 'd.medico_id', 'medico_id');
+      const rows = all(`SELECT pg.data, pg.valor, pg.metodo, d.numero, p.nome paciente_nome, u.nome user_nome, md.nome medico_nome FROM pagamentos pg
+        LEFT JOIN documentos d ON d.id=pg.recibo_id LEFT JOIN pacientes p ON p.id=pg.paciente_id LEFT JOIN users u ON u.id=d.user_id
+        LEFT JOIN medicos md ON md.id=d.medico_id WHERE ${where.join(' AND ')} ORDER BY pg.metodo, pg.data, pg.id`, ...params);
+      return { titulo: 'Mapa de caixa', grupo: 'metodo', cols: [{ k: 'data', h: 'Data', t: D_ }, { k: 'numero', h: 'Documento' }, { k: 'paciente_nome', h: 'Paciente' },
+        { k: 'medico_nome', h: 'Médico' }, { k: 'user_nome', h: 'Utilizador' }, { k: 'metodo', h: 'Meio de pagamento' }, { k: 'valor', h: 'Valor', t: M }], rows };
+    }
+    case 'comissoes': {
+      const where = ["d.estado='emitido'", "d.tipo IN ('FT','FR','NC')", 'd.data BETWEEN ? AND ?']; const params = [de, ate];
+      if (f('medico_id')) { where.push('COALESCE(t.medico_id, d.medico_id) = ?'); params.push(f('medico_id')); }
+      const rows = all(`SELECT d.data, d.numero, p.nome paciente_nome, l.descricao, COALESCE(md.nome,'(sem médico)') medico_nome, COALESCE(md.comissao_pct,0) pct,
+        ROUND(CASE WHEN d.tipo='NC' THEN -l.total ELSE l.total END, 2) valor FROM documento_linhas l JOIN documentos d ON d.id=l.documento_id
+        LEFT JOIN pacientes p ON p.id=d.paciente_id LEFT JOIN tratamentos t ON t.id=l.tratamento_id LEFT JOIN medicos md ON md.id=COALESCE(t.medico_id, d.medico_id)
+        WHERE ${where.join(' AND ')} ORDER BY medico_nome, d.data`, ...params).map(r => ({ ...r, comissao: r2(r.valor * r.pct / 100) }));
+      return { titulo: 'Comissões dos médicos', grupo: 'medico_nome', cols: [{ k: 'data', h: 'Data', t: D_ }, { k: 'numero', h: 'Documento' }, { k: 'paciente_nome', h: 'Paciente' },
+        { k: 'descricao', h: 'Descrição' }, { k: 'valor', h: 'Faturado', t: M }, { k: 'pct', h: '%', t: N }, { k: 'comissao', h: 'Comissão', t: M }], rows };
+    }
+    case 'pendentes': {
+      const rows = all('SELECT id, numero, nome, telemovel FROM pacientes ORDER BY nome').map(p => ({ ...p, ...saldoPaciente(p.id) })).filter(p => p.saldo > 0.004);
+      return { titulo: 'Pacientes com valores pendentes', cols: [{ k: 'numero', h: 'N.º' }, { k: 'nome', h: 'Paciente' }, { k: 'telemovel', h: 'Telemóvel' },
+        { k: 'faturado', h: 'Faturado', t: M }, { k: 'pago', h: 'Pago', t: M }, { k: 'saldo', h: 'Em dívida', t: M }], rows };
+    }
+    case 'producao': {
+      const where = ["t.estado='realizado'", 't.data BETWEEN ? AND ?']; const params = [de, ate];
+      filtro(where, params, 't.medico_id', 'medico_id');
+      const rows = all(`SELECT t.data, p.nome paciente_nome, t.descricao, t.dente, COALESCE(md.nome,'(sem médico)') medico_nome,
+        ROUND(t.preco*(1-COALESCE(t.desconto_pct,0)/100.0)*(1+COALESCE(t.iva,0)/100.0),2) valor, d.numero documento FROM tratamentos t
+        JOIN pacientes p ON p.id=t.paciente_id LEFT JOIN medicos md ON md.id=t.medico_id LEFT JOIN documentos d ON d.id=t.documento_id
+        WHERE ${where.join(' AND ')} ORDER BY medico_nome, t.data`, ...params).map(r => ({ ...r, documento: r.documento || 'por faturar' }));
+      return { titulo: 'Produção (tratamentos realizados)', grupo: 'medico_nome', cols: [{ k: 'data', h: 'Data', t: D_ }, { k: 'paciente_nome', h: 'Paciente' },
+        { k: 'descricao', h: 'Tratamento' }, { k: 'dente', h: 'Dente' }, { k: 'documento', h: 'Faturado em' }, { k: 'valor', h: 'Valor', t: M }], rows };
+    }
+    case 'orcamentos': {
+      const where = ['o.data BETWEEN ? AND ?']; const params = [de, ate];
+      if (f('estado') === 'expirado') where.push(`o.estado='aberto' AND o.validade < '${today()}'`);
+      else filtro(where, params, 'o.estado', 'estado');
+      filtro(where, params, 'o.medico_id', 'medico_id');
+      const rows = all(`SELECT o.numero, o.data, o.validade, o.estado, o.total, p.nome paciente_nome, md.nome medico_nome FROM orcamentos o
+        JOIN pacientes p ON p.id=o.paciente_id LEFT JOIN medicos md ON md.id=o.medico_id WHERE ${where.join(' AND ')} ORDER BY o.data`, ...params);
+      return { titulo: 'Orçamentos', cols: [{ k: 'numero', h: 'Número' }, { k: 'data', h: 'Data', t: D_ }, { k: 'paciente_nome', h: 'Paciente' }, { k: 'medico_nome', h: 'Médico' },
+        { k: 'validade', h: 'Validade', t: D_ }, { k: 'estado', h: 'Estado' }, { k: 'total', h: 'Total', t: M }], rows };
+    }
+    case 'movimentos': {
+      const where = ['d.data BETWEEN ? AND ?']; const params = [de, ate];
+      filtro(where, params, 'd.medico_id', 'medico_id'); filtro(where, params, 'd.user_id', 'user_id'); filtro(where, params, 'd.paciente_id', 'paciente_id');
+      const docs = all(`SELECT d.*, p.nome paciente_nome, md.nome medico_nome, u.nome user_nome FROM documentos d LEFT JOIN pacientes p ON p.id=d.paciente_id
+        LEFT JOIN medicos md ON md.id=d.medico_id LEFT JOIN users u ON u.id=d.user_id WHERE ${where.join(' AND ')} ORDER BY d.data DESC, d.id DESC`, ...params);
+      const rows = [];
+      for (const d of docs) {
+        const base = { data: d.data, numero: d.numero, paciente_nome: d.paciente_nome, medico_nome: d.medico_nome, user_nome: d.user_nome, estado: d.estado };
+        if (d.tipo === 'FR' || d.tipo === 'RC') {
+          const pg = get('SELECT COALESCE(SUM(valor),0) v, MAX(metodo) mp FROM pagamentos WHERE recibo_id=?', d.id);
+          rows.push({ ...base, dc: 'C', descricao: 'Pagamento', mp: pg.mp, credito: pg.v, debito: 0 });
+        }
+        if (d.tipo === 'FT' || d.tipo === 'FR') rows.push({ ...base, dc: 'D', descricao: TIPOS_DOC[d.tipo], mp: '', debito: d.total, credito: 0 });
+        if (d.tipo === 'NC') rows.push({ ...base, dc: 'C', descricao: 'Nota de crédito', mp: '', debito: 0, credito: d.total });
+      }
+      return { titulo: 'Movimentos de conta corrente (global)', cols: [{ k: 'data', h: 'Data', t: D_ }, { k: 'numero', h: 'Documento' }, { k: 'dc', h: 'D/C' },
+        { k: 'descricao', h: 'Descrição' }, { k: 'mp', h: 'MP' }, { k: 'paciente_nome', h: 'Paciente' }, { k: 'medico_nome', h: 'Médico' },
+        { k: 'user_nome', h: 'Utilizador' }, { k: 'estado', h: 'Estado' }, { k: 'debito', h: 'Débito', t: M }, { k: 'credito', h: 'Crédito', t: M }], rows };
+    }
+  }
+  throw new HttpError(404, 'Listagem desconhecida');
+}
+
 // ---------- router da API ----------
 async function api(req, res, url) {
   const parts = url.pathname.split('/').filter(Boolean).slice(1); // remove 'api'
@@ -508,6 +681,8 @@ async function api(req, res, url) {
         especialidades: all('SELECT * FROM especialidades ORDER BY nome'), razoes: all('SELECT * FROM razoes_visita ORDER BY abreviatura'),
         entidades: all('SELECT * FROM entidades ORDER BY nome'), laboratorios: all('SELECT * FROM laboratorios ORDER BY nome'),
         armazens: all('SELECT * FROM armazens ORDER BY id'), sms_modelos: all('SELECT * FROM sms_modelos ORDER BY nome'),
+        ivas: all('SELECT * FROM ivas ORDER BY regiao, taxa'), isencoes: D.ISENCOES,
+        tipos_bloqueio: TIPOS_BLOQ, utilizadores: all('SELECT id, nome FROM users ORDER BY nome'),
         config: D.getConfig(),
       };
     case 'users': {
@@ -553,6 +728,15 @@ async function api(req, res, url) {
         if (!p) throw new HttpError(404, 'Paciente não encontrado');
         p.anamnese = get('SELECT * FROM anamnese WHERE paciente_id=?', id) || {};
         p.saldo = saldoPaciente(id);
+        p.stats = get(`SELECT COUNT(*) total, SUM(CASE WHEN e.categoria='REALIZADAS' THEN 1 ELSE 0 END) realizadas,
+          SUM(CASE WHEN e.categoria='FALTAS' THEN 1 ELSE 0 END) faltas, SUM(CASE WHEN e.categoria='INATIVAS' THEN 1 ELSE 0 END) inativas,
+          SUM(CASE WHEN m.inicio >= ? AND e.categoria NOT IN ('INATIVAS','FALTAS') THEN 1 ELSE 0 END) futuras
+          FROM marcacoes m LEFT JOIN estados e ON e.id=m.estado_id WHERE m.paciente_id=?`, today(), id);
+        p.por_realizar = r2(get("SELECT COALESCE(SUM(preco*(1-COALESCE(desconto_pct,0)/100.0)*(1+COALESCE(iva,0)/100.0)),0) v FROM tratamentos WHERE paciente_id=? AND estado='planeado'", id).v);
+        p.alterado_por_nome = p.alterado_por ? get('SELECT nome FROM users WHERE id=?', p.alterado_por)?.nome : null;
+        const tit = p.agregado_id || id;
+        p.agregado = all('SELECT id, nome, numero, data_nasc, agregado_id FROM pacientes WHERE (id=? OR agregado_id=?) AND id != ? ORDER BY nome', tit, tit, id);
+        p.titular_nome = p.agregado_id ? get('SELECT nome FROM pacientes WHERE id=?', p.agregado_id)?.nome : null;
         p.proxima = get(`${AGENDA_SQL} WHERE m.paciente_id=? AND m.inicio >= ? ORDER BY m.inicio LIMIT 1`, id, today());
         p.ultima = get(`${AGENDA_SQL} WHERE m.paciente_id=? AND m.inicio < ? ORDER BY m.inicio DESC LIMIT 1`, id, today());
         return p;
@@ -601,27 +785,46 @@ async function api(req, res, url) {
       if (m === 'DELETE' && id) { run('DELETE FROM marcacoes WHERE id=?', id); D.log(user.id, 'eliminar marcação', `id=${id}`); return { ok: true }; }
       break;
     }
-    case 'pesquisa-vagas': { // procura o próximo horário livre para um médico
-      const medico = Number(q.get('medico_id')); const dur = Number(q.get('duracao')) || 30;
-      const cfg = D.getConfig(); const dias = (cfg.agenda_dias || '1,2,3,4,5').split(',').map(Number);
-      const out = []; let d = new Date((q.get('de') || today()) + 'T12:00:00');
-      const now = new Date();
-      for (let i = 0; i < 60 && out.length < 10; i++, d.setDate(d.getDate() + 1)) {
-        const dia = d.toISOString().slice(0, 10);
+    case 'pesquisa-vagas': { // procura horários livres para um ou dois médicos em simultâneo
+      const medicos = [q.get('medico_id'), q.get('medico2_id')].filter(Boolean).map(Number);
+      if (!medicos.length) throw new HttpError(400, 'Escolha o médico');
+      const dur = Number(q.get('duracao')) || 30;
+      const cfg = D.getConfig();
+      const dias = (q.get('dias') || cfg.agenda_dias || '1,2,3,4,5').split(',').filter(Boolean).map(Number);
+      const toM = h => { const [a, b] = String(h).split(':').map(Number); return a * 60 + (b || 0); };
+      const hMin = Math.max(toM(cfg.agenda_inicio || '08:00'), toM(q.get('hora_min') || '00:00'));
+      const hMax = Math.min(toM(cfg.agenda_fim || '20:00'), toM(q.get('hora_max') || '23:59'));
+      const periodos = { manha: q.get('manha') !== '0', tarde: q.get('tarde') !== '0', noite: q.get('noite') === '1' };
+      const okPeriodo = t => (t < 780 && periodos.manha) || (t >= 780 && t < 1200 && periodos.tarde) || (t >= 1200 && periodos.noite);
+      const incluirFeriados = q.get('feriados') === '1';
+      const limite = Math.min(Number(q.get('limite')) || 20, 100);
+      const step = Number(cfg.agenda_intervalo) || 15;
+      const out = []; const d = new Date((q.get('de') || today()) + 'T12:00:00'); const now = new Date();
+      for (let i = 0; i < 120 && out.length < limite; i++, d.setDate(d.getDate() + 1)) {
+        const dia = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
         if (!dias.includes(d.getDay())) continue;
-        if (feriadosAno(d.getFullYear()).some(f => f.data === dia)) continue;
-        const ocup = all(`SELECT inicio, fim FROM marcacoes WHERE medico_id=? AND inicio LIKE ? AND estado_id NOT IN (SELECT id FROM estados WHERE categoria IN ('INATIVAS','FALTAS'))`, medico, dia + '%');
-        const [hi, mi] = cfg.agenda_inicio.split(':').map(Number); const [hf, mf] = cfg.agenda_fim.split(':').map(Number);
-        const step = Number(cfg.agenda_intervalo) || 15;
-        for (let t = hi * 60 + mi; t + dur <= hf * 60 + mf && out.length < 10; t += step) {
-          const ini = `${dia}T${String(Math.floor(t / 60)).padStart(2, '0')}:${String(t % 60).padStart(2, '0')}`;
-          const f = t + dur; const fim = `${dia}T${String(Math.floor(f / 60)).padStart(2, '0')}:${String(f % 60).padStart(2, '0')}`;
+        if (!incluirFeriados && feriadosAno(d.getFullYear()).some(f => f.data === dia)) continue;
+        const ocup = medicos.flatMap(mid => ocupacaoDia(mid, dia));
+        let porDia = 0;
+        for (let t = hMin; t + dur <= hMax && out.length < limite && porDia < 4; t += step) {
+          if (!okPeriodo(t) || !okPeriodo(t + dur - 1)) continue;
+          const ini = `${dia}T${hhmm(t)}`, fim = `${dia}T${hhmm(t + dur)}`;
           if (new Date(ini) < now) continue;
-          if (!ocup.some(o => o.inicio < fim && o.fim > ini)) { out.push({ inicio: ini, fim }); t += Math.max(0, 60 - step); }
+          if (!ocup.some(o => o.inicio < fim && o.fim > ini)) { out.push({ inicio: ini, fim, medicos }); porDia++; t += Math.max(0, 60 - step); }
         }
       }
       return out;
     }
+    case 'bloqueios': {
+      const de = q.get('de') || today(); const ate = q.get('ate') || de;
+      return all(`SELECT b.*, md.nome medico_nome FROM bloqueios b LEFT JOIN medicos md ON md.id=b.medico_id
+        WHERE b.inicio <= ? AND b.fim >= ? ORDER BY b.inicio`, ate + 'T23:59', de + 'T00:00').map(b => ({ ...b, tipo_nome: TIPOS_BLOQ[b.tipo] || b.tipo }));
+    }
+    case 'espera':
+      return all(`SELECT le.*, p.nome paciente_nome, p.telemovel, md.nome medico_nome, s.nome servico_nome FROM lista_espera le
+        JOIN pacientes p ON p.id=le.paciente_id LEFT JOIN medicos md ON md.id=le.medico_id LEFT JOIN servicos s ON s.id=le.servico_id
+        WHERE le.estado = ? ORDER BY le.criado_em`, q.get('estado') || 'aguarda');
+    case 'listagens': return listagem(r1, q);
     case 'feriados': return feriadosAno(Number(q.get('ano')) || new Date().getFullYear());
 
     case 'orcamentos': {
