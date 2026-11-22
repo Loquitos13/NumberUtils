@@ -64,7 +64,7 @@ const TABLES = {
   razoes_visita: { cols: ['abreviatura', 'descricao', 'ativo'], admin: true, order: 'abreviatura' },
   feriados: { cols: ['nome', 'data', 'fixo', 'ativo'], admin: true, order: 'data' },
   entidades: { cols: ['nome', 'nif', 'desconto_pct', 'ativo'], admin: true, order: 'nome' },
-  servicos: { cols: ['codigo', 'nome', 'especialidade_id', 'preco', 'iva', 'iva_id', 'duracao_min', 'por_dente', 'ativo'], admin: true, order: 'codigo, nome' },
+  servicos: { cols: ['codigo', 'nome', 'especialidade_id', 'preco', 'iva', 'iva_id', 'simbolo', 'duracao_min', 'por_dente', 'ativo'], admin: true, order: 'codigo, nome' },
   laboratorios: { cols: ['nome', 'contacto', 'telefone', 'email', 'ativo'], admin: false, order: 'nome' },
   armazens: { cols: ['nome', 'ativo'], admin: true, order: 'id' },
   produtos: { cols: ['codigo', 'nome', 'familia', 'unidade', 'stock_min', 'stock_ideal', 'preco_custo', 'fornecedor', 'ativo'], admin: false, order: 'nome' },

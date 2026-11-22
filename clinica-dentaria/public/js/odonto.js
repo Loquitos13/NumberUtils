@@ -2,7 +2,6 @@
 /* Odontograma interativo reutilizável (ficha do paciente e ecrã de consulta).
    Vermelho = necessário (planeado), azul = feito (realizado). */
 
-const C_FEITO = '#2f5cc4', C_NECESS = '#f2b7bc';
 
 function liqTrat(t) { return (t.preco || 0) * (1 - (t.desconto_pct || 0) / 100) * (1 + (t.iva || 0) / 100); }
 
@@ -11,27 +10,39 @@ async function odontograma(el, p, opts = {}) {
   const st = el._od ||= { sel: new Set(), faces: new Set(), dec: false };
   const m = opts.marcacao;
   const [conds, trat] = await Promise.all([GET('t/dentes_condicoes?paciente_id=' + p.id), GET(`pacientes/${p.id}/tratamentos`)]);
+  const lk = L();
+  const filtro = st.filtro || 'tudo';
   const state = {};
-  const S = n => (state[n] ||= { faces: {}, whole: {}, planned: false, items: [] });
+  const S = n => (state[n] ||= { faces: {}, marcas: [], ausente: false, items: [], nec: false, feito: false });
+  const CMAP = { carie: ['face', COR_NEC], restauracao: ['face', COR_FEITO], selante: ['selante', COR_FEITO], extrair: ['extracao', COR_NEC], endodontia: ['canal', COR_FEITO],
+    coroa: ['coroa', COR_FEITO], implante: ['implante', COR_FEITO], fratura: ['fratura', COR_NEC], mobilidade: ['mobilidade', COR_NEC] };
   for (const c of conds) {
     const s = S(c.dente); s.items.push({ kind: 'c', ...c });
+    if (c.condicao === 'ausente') { s.ausente = true; continue; }
+    const [sym, cor] = CMAP[c.condicao] || ['', COR_NEC];
     const fs = (c.faces || '').split('').filter(f => FACES[f]);
-    if (fs.length && ['carie', 'restauracao', 'selante'].includes(c.condicao)) fs.forEach(f => s.faces[f] = COND[c.condicao].c);
-    else s.whole[c.condicao] = true;
+    if (sym === 'face') (fs.length ? fs : ['O']).forEach(f => { s.faces[f] ||= cor; });
+    else if (sym) s.marcas.push({ sym, cor });
   }
   for (const t of trat) {
     if (!t.dente) continue;
+    const feito = t.estado === 'realizado';
+    const mostra = filtro === 'tudo' || (filtro === 'nec' && !feito) || (filtro === 'feito' && feito) || (filtro === 'consulta' && m && t.marcacao_id === m.id);
+    const sym = simboloServico(byId(lk.servicos, t.servico_id), t.descricao);
+    const cor = feito ? COR_FEITO : COR_NEC;
     for (const d of String(t.dente).split(/[,\s]+/).filter(Boolean)) {
       const s = S(d); s.items.push({ kind: 't', ...t });
-      if (t.estado === 'planeado') s.planned = true;
-      if (t.estado === 'realizado' && !t.faces) s.done = true;
-      const col = t.estado === 'realizado' ? C_FEITO : C_NECESS;
-      (t.faces || '').split('').forEach(f => { if (FACES[f] && s.faces[f] !== C_FEITO) s.faces[f] = col; });
+      if (!mostra) continue;
+      feito ? (s.feito = true) : (s.nec = true);
+      const fs = (t.faces || '').split('').filter(f => FACES[f]);
+      if (sym === 'extracao' && feito) { s.ausente = true; continue; }
+      if (sym === 'face' || (!sym && fs.length)) (fs.length ? fs : ['O']).forEach(f => { if (s.faces[f] !== COR_FEITO || feito) s.faces[f] = cor; });
+      else if (sym) s.marcas.push({ sym, cor });
     }
   }
-  const lk = L();
-  const tooth = (n, lower) => `<button type="button" class="tooth ${st.sel.has(String(n)) ? 'sel' : ''}" data-n="${n}" aria-pressed="${st.sel.has(String(n))}" aria-label="Dente ${n}">
-    ${lower ? '' : `<span class="n">${n}</span>`}${toothSVG(n, S(String(n)))}${lower ? `<span class="n">${n}</span>` : ''}</button>`;
+  const tooth = (n, lower) => { const d = S(String(n)); const on = st.sel.has(String(n));
+    const num = `<span class="n ${d.nec ? 'is-nec' : d.feito ? 'is-feito' : ''}">${n}</span>`;
+    return `<div class="tooth ${on ? 'sel' : ''}" data-n="${n}" role="button" tabindex="0" aria-pressed="${on}" aria-label="Dente ${n}">${lower ? '' : num}${desenhoDente(n, d)}${lower ? num : ''}</div>`; };
   const arc = (rows, lower) => `<div class="arc">${rows.map((q, i) => q.map(n => tooth(n, lower)).join('') + (i === 0 ? '<div class="gap"></div>' : '')).join('')}</div>`;
   const selList = [...st.sel].sort();
   const items = selList.flatMap(n => S(n).items.map(i => ({ ...i, _d: n })));
@@ -44,11 +55,13 @@ async function odontograma(el, p, opts = {}) {
   el.innerHTML = `<div class="od-wrap">
     <section class="card od-chart">
       <div class="row between"><h3 style="margin:0">Odontograma</h3>
-        <span class="row"><label class="check small"><input type="checkbox" id="od-dec" ${st.dec ? 'checked' : ''}> Dentição decídua</label>
+        <span class="row"><span class="seg" role="group" aria-label="Mostrar">${[['tudo', 'Tudo'], ['nec', 'Necessário'], ['feito', 'Feito'], ...(m ? [['consulta', 'Esta consulta']] : [])].map(([k, l]) => `<button type="button" data-filtro="${k}" class="${filtro === k ? 'on' : ''}">${l}</button>`).join('')}</span>
+        <label class="check small"><input type="checkbox" id="od-dec" ${st.dec ? 'checked' : ''}> Decídua</label>
         ${st.sel.size ? '<button class="sm ghost" id="od-clear">Limpar seleção</button>' : ''}</span></div>
       <div class="odonto">${arc(Q_UP)}${st.dec ? arc(D_UP) + '<div class="midline"></div>' + arc(D_LO, true) : '<div class="midline"></div>'}${arc(Q_LO, true)}</div>
-      <div class="odonto-legend"><span style="--c:${C_NECESS};--b:#b8202d">Necessário</span><span style="--c:${C_FEITO}">Feito</span>
-        ${CONDICOES.map(([, l, c]) => `<span style="--c:${c}">${l}</span>`).join('')}</div>
+      <div class="odonto-legend"><span style="--c:${COR_NEC}">Necessário</span><span style="--c:${COR_FEITO}">Feito / existente</span>
+        </div>
+      <p class="muted small center" style="margin:4px 0 0">Clique no dente para o selecionar; clique numa face da vista oclusal para a marcar.</p>
     </section>
     <section class="card od-panel">
       <div class="od-target">${selList.length ? `<span class="muted">Dente${selList.length > 1 ? 's' : ''}</span> <b class="num">${selList.join(', ')}</b>` : '<span class="muted">Nenhum dente selecionado: o tratamento fica para a boca toda.</span><br><span class="small muted">Clique nos dentes para os selecionar; pode escolher vários.</span>'}</div>
@@ -70,12 +83,15 @@ async function odontograma(el, p, opts = {}) {
   const redraw = async () => { await odontograma(el, p, opts); opts.onChange && opts.onChange(); };
   $('#od-dec', el).onchange = e => { st.dec = e.target.checked; odontograma(el, p, opts); };
   const clr = $('#od-clear', el); if (clr) clr.onclick = () => { st.sel.clear(); st.faces.clear(); odontograma(el, p, opts); };
-  $$('.tooth', el).forEach(t => t.onclick = e => {
-    const n = t.dataset.n;
-    if (st.sel.has(n)) st.sel.delete(n); else st.sel.add(n);
+  $$('[data-filtro]', el).forEach(b => b.onclick = () => { st.filtro = b.dataset.filtro; odontograma(el, p, opts); });
+  const toque = (t, e) => {
+    const n = t.dataset.n; const f = e && e.target.closest('[data-f]')?.dataset.f;
+    if (f) { if (!st.sel.has(n)) { st.sel.add(n); st.faces = new Set([f]); } else st.faces.has(f) ? st.faces.delete(f) : st.faces.add(f); }
+    else if (st.sel.has(n)) st.sel.delete(n); else st.sel.add(n);
     if (!st.sel.size) st.faces.clear();
     odontograma(el, p, opts);
-  });
+  };
+  $$('.tooth', el).forEach(t => { t.onclick = e => toque(t, e); t.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toque(t); } }; });
   $$('[data-face]', el).forEach(b => b.onclick = () => { const f = b.dataset.face; st.faces.has(f) ? st.faces.delete(f) : st.faces.add(f); b.classList.toggle('on'); });
   const facesStr = () => [...st.faces].join('');
   const add = async estado => {
