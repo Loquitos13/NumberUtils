@@ -173,9 +173,8 @@ async function tabContaCorrente(el, p) {
 route('faturacao', async (view, [sub = 'documentos']) => {
   view.innerHTML = `<div class="page-head"><h1>Faturação</h1><div class="spacer"></div>
     <button id="fx-rc">Receber pagamento</button><button class="primary" id="fx-new">Novo documento</button></div>
-    <div class="subnav">${[['documentos', 'Documentos'], ['devedores', 'Saldos de pacientes'], ['caixa', 'Fecho de caixa']].map(([k, l]) => `<button class="${k === sub ? 'active' : ''}" data-s="${k}">${l}</button>`).join('')}</div>
+    ${secTabs(SEC_FAT, sub === 'documentos' ? '#/faturacao' : '#/faturacao/' + sub)}
     <div id="fx-body"></div>`;
-  $$('.subnav button', view).forEach(b => b.onclick = () => go('#/faturacao/' + b.dataset.s));
   $('#fx-new').onclick = () => emitirDocumento({ onDone: () => render() });
   $('#fx-rc').onclick = () => emitirRecibo({ onDone: () => render() });
   const body = $('#fx-body');
@@ -244,9 +243,9 @@ const ORC_COLS = [
   { h: 'Total', cls: 'right', f: o => eur(o.total) }, { h: 'Estado', f: o => `<span class="badge ${ORC_EST[o.estado]?.[1]}">${ORC_EST[o.estado]?.[0] || esc(o.estado)}</span>` },
 ];
 route('orcamentos', async (view) => {
-  view.innerHTML = `<div class="page-head"><h1>Orçamentos</h1><div class="spacer"></div>
+  view.innerHTML = `<div class="page-head"><h1>Faturação</h1><div class="spacer"></div>
     <select id="or-est" style="width:auto">${optsArr([['', 'Todos'], ['aberto', 'Em aberto'], ['aceite', 'Aceites'], ['recusado', 'Recusados']], 'aberto')}</select>
-    <button class="primary" id="or-new">Novo orçamento</button></div><div class="card" id="or-list"></div>`;
+    <button class="primary" id="or-new">Novo orçamento</button></div>${secTabs(SEC_FAT, '#/orcamentos')}<div class="card" id="or-list"></div>`;
   const load = async () => {
     const rows = await GET('orcamentos?estado=' + $('#or-est').value);
     $('#or-list').innerHTML = table(rows, ORC_COLS, { onClick: o => verOrcamento(o.id), empty: 'Sem orçamentos' });

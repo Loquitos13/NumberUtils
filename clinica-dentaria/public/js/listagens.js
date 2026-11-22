@@ -46,7 +46,7 @@ route('listagens', async (view, [key = 'agenda-medico']) => {
     ate: def.futuro ? addDays(isoDate(), 14) : isoDate(),
   };
   const lk = L(); const fs = def.f || [];
-  view.innerHTML = `<div class="page-head"><h1>Listagens</h1></div>
+  view.innerHTML = `<div class="page-head"><h1>Relatórios</h1></div>${secTabs(SEC_REL, '#/listagens')}
     <div class="grid" style="grid-template-columns:220px minmax(0,1fr)">
       <div class="card" style="padding:10px">${LISTAGENS.map(([g, l]) => `<div class="muted small bold" style="margin:8px 6px 4px">${esc(g)}</div>
         ${l.map(([k, t]) => `<a href="#/listagens/${k}" class="btn ghost" style="display:flex;width:100%;${k === key ? 'background:var(--brand-soft);color:var(--brand-2);font-weight:600' : ''}">${esc(t)}</a>`).join('')}`).join('')}</div>

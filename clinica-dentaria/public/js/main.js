@@ -2,8 +2,8 @@
 /* Arranque, menu, login e atalhos globais */
 const NAV = [
   ['inicio', 'home', 'Início'], ['agenda', 'calendar', 'Agenda'], ['pacientes', 'users', 'Pacientes'], ['faturacao', 'receipt', 'Faturação'],
-  ['orcamentos', 'file', 'Orçamentos'], ['proteses', 'tooth', 'Próteses'], ['stocks', 'box', 'Stocks'], ['listagens', 'list', 'Listagens'], ['estatisticas', 'chart', 'Estatísticas'],
-  ['comunicacao', 'mail', 'Comunicação'], 'sep', ['config', 'settings', 'Configuração'],
+  ['proteses', 'tooth', 'Próteses'], ['stocks', 'box', 'Stocks'], ['listagens', 'chart', 'Relatórios'], ['comunicacao', 'mail', 'Comunicação'],
+  'sep', ['config', 'settings', 'Configuração'],
 ];
 
 async function startApp() {

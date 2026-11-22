@@ -764,7 +764,7 @@ async function api(req, res, url) {
     case 'notas': {
       if (m === 'POST') {
         if (!body.texto) throw new HttpError(400, 'Escreva a nota');
-        const nid = insert('notas_clinicas', { paciente_id: body.paciente_id, medico_id: body.medico_id || user.medico_id || null, user_id: user.id,
+        const nid = insert('notas_clinicas', { paciente_id: body.paciente_id, marcacao_id: body.marcacao_id || null, medico_id: body.medico_id || user.medico_id || null, user_id: user.id,
           data: body.data || new Date().toISOString().slice(0, 16).replace('T', ' '), texto: body.texto });
         return { id: nid };
       }

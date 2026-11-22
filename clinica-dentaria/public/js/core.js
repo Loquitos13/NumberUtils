@@ -53,7 +53,8 @@ function toast(msg, err = false) {
   const el = document.createElement('div');
   el.className = 'toast' + (err ? ' err' : '');
   el.textContent = msg;
-  $('#toasts').appendChild(el);
+  const box = $('#toasts'); box.appendChild(el);
+  while (box.children.length > 2) box.firstElementChild.remove();
   setTimeout(() => el.remove(), err ? 6000 : 3000);
 }
 // executa uma ação mostrando o erro se falhar
@@ -279,13 +280,21 @@ function hbars(rows, { label = 'nome', value = 'n', color, fmt = v => v } = {}) 
     <div class="right bold">${esc(fmt(r[value]))}</div></div>`).join('')}</div>`;
 }
 
+// ---------- separadores de secção (links) ----------
+const SEC_FAT = [['#/faturacao', 'Documentos'], ['#/orcamentos', 'Orçamentos'], ['#/faturacao/devedores', 'Saldos de pacientes'], ['#/faturacao/caixa', 'Fecho de caixa']];
+const SEC_REL = [['#/listagens', 'Listagens'], ['#/estatisticas', 'Estatísticas']];
+function secTabs(items, active) {
+  return `<nav class="tabs" aria-label="Secção">${items.map(([h, l]) => `<a href="${h}" class="${h === active ? 'active' : ''}" ${h === active ? 'aria-current="page"' : ''}>${l}</a>`).join('')}</nav>`;
+}
+
 // ---------- router ----------
 function route(name, fn) { App.routes[name] = fn; }
 function go(hash) { if (location.hash === hash) render(); else location.hash = hash; }
 async function render() {
   const [name, ...params] = location.hash.replace(/^#\/?/, '').split('/');
   const r = App.routes[name || 'inicio'] || App.routes.inicio;
-  $$('#nav a').forEach(a => a.classList.toggle('active', a.dataset.r === (name || 'inicio')));
+  const sec = { orcamentos: 'faturacao', estatisticas: 'listagens', paciente: 'pacientes', consulta: 'agenda' }[name] || name || 'inicio';
+  $$('#nav a').forEach(a => a.classList.toggle('active', a.dataset.r === sec));
   const view = $('#view');
   App.current = name;
   try { await r(view, params.map(decodeURIComponent)); }

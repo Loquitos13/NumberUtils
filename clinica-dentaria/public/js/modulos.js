@@ -187,9 +187,9 @@ function editProduto(p) {
 // ---------- estatísticas ----------
 route('estatisticas', async (view) => {
   const st0 = view.dataset.p ? JSON.parse(view.dataset.p) : { de: isoDate().slice(0, 8) + '01', ate: isoDate() };
-  view.innerHTML = `<div class="page-head"><h1>Estatísticas</h1><div class="spacer"></div>
+  view.innerHTML = `<div class="page-head"><h1>Relatórios</h1><div class="spacer"></div>
     <div class="row">${['mes', 'mesant', 'ano'].map(k => `<button class="sm" data-pr="${k}">${{ mes: 'Este mês', mesant: 'Mês anterior', ano: 'Este ano' }[k]}</button>`).join('')}
-    <input type="date" id="es-de" value="${st0.de}" style="width:auto"> <input type="date" id="es-ate" value="${st0.ate}" style="width:auto"></div></div><div id="es-body"></div>`;
+    <input type="date" id="es-de" value="${st0.de}" style="width:auto"> <input type="date" id="es-ate" value="${st0.ate}" style="width:auto"></div></div>${secTabs(SEC_REL, '#/estatisticas')}<div id="es-body"></div>`;
   const load = async () => {
     const de = $('#es-de').value, ate = $('#es-ate').value;
     view.dataset.p = JSON.stringify({ de, ate });

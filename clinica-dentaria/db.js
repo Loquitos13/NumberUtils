@@ -178,6 +178,7 @@ const MIGRACOES = [
   'ALTER TABLE pacientes ADD COLUMN agregado_id INTEGER',
   'ALTER TABLE pacientes ADD COLUMN alterado_por INTEGER',
   'ALTER TABLE pacientes ADD COLUMN alterado_em TEXT',
+  'ALTER TABLE notas_clinicas ADD COLUMN marcacao_id INTEGER',
 ];
 for (const sql of MIGRACOES) {
   try { db.exec(sql); } catch { /* coluna já existe */ }

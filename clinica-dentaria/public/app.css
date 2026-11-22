@@ -266,3 +266,54 @@ table.t tfoot td { font-weight: 600; border-top: 1px solid var(--rule); border-b
   @page { margin: 14mm; }
 }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
+
+/* ---------- separadores como links ---------- */
+.tabs a { padding: 7px 12px; color: var(--graphite); font-weight: 500; text-decoration: none; border-bottom: 2px solid transparent; margin-bottom: -1px; white-space: nowrap; }
+.tabs a:hover { color: var(--ink); }
+.tabs a.active { color: var(--blue); border-bottom-color: var(--blue); font-weight: 600; }
+.grow { flex: 1; min-width: 0; }
+a.plain { color: inherit; text-decoration: none; }
+a.plain:hover { color: var(--blue); }
+
+/* ---------- odontograma ---------- */
+.od-wrap { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 12px; align-items: start; }
+@media (max-width: 1100px) { .od-wrap { grid-template-columns: 1fr; } }
+.od-wrap > .card { margin: 0; }
+.odonto .midline { height: 0; border-top: 1px dashed var(--rule); width: 92%; margin: 4px 0; }
+button.tooth { border: 1px solid transparent; background: none; padding: 2px 1px; font: inherit; gap: 1px; }
+button.tooth:hover { background: var(--hover); border-color: var(--rule); }
+button.tooth.sel { background: var(--blue-wash); border-color: var(--blue); box-shadow: none; }
+button.tooth.sel .n { color: var(--blue-ink); font-weight: 600; }
+.odonto-legend span::before { box-shadow: inset 0 0 0 1px var(--b, rgba(0, 0, 0, .15)); }
+.od-target { padding: 8px 10px; background: var(--paper); border-radius: var(--r); line-height: 1.5; }
+.od-target b { font-size: 1.05rem; }
+.faces { display: flex; gap: 4px; align-items: center; margin-top: 8px; }
+.face { width: 32px; height: 28px; padding: 0; justify-content: center; font-weight: 600; font-variant-numeric: tabular-nums; }
+.face.on { background: var(--blue); border-color: var(--blue); color: #fff; }
+.od-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 8px; }
+.od-actions button { justify-content: center; padding: 8px; font-weight: 600; }
+button.nec { color: var(--red-ink); border-color: #e3a9ae; background: var(--red-wash); }
+button.nec:hover { background: #f6d6d9; border-color: var(--red); }
+.od-more { margin-top: 10px; }
+.od-more summary { cursor: pointer; color: var(--graphite); font-size: .9rem; }
+.od-hist { list-style: none; margin: 0; padding: 0; }
+.od-hist li { display: flex; align-items: center; gap: 8px; padding: 5px 0; border-bottom: 1px solid var(--rule-2); }
+.od-hist li:last-child { border-bottom: 0; }
+.od-hist .mark { width: 10px; height: 10px; border-radius: 2px; flex-shrink: 0; }
+.od-hist .is-nec .mark { background: #f2b7bc; box-shadow: inset 0 0 0 1px var(--red); }
+.od-hist .is-feito .mark { background: #2f5cc4; }
+.od-hist .is-nec .num { color: var(--red-ink); }
+.od-hist .is-feito .num { color: var(--blue-ink); }
+
+/* ---------- consulta ---------- */
+.consulta-head .back { padding: 5px 6px; }
+.consulta-when { text-align: right; }
+.consulta-body { display: grid; gap: 12px; }
+.consulta-side { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); gap: 12px; align-items: start; }
+.consulta-side .card { margin: 0; }
+@media (max-width: 900px) { .consulta-side { grid-template-columns: 1fr; } }
+.steps { display: inline-flex; border: 1px solid var(--rule); border-radius: var(--r); overflow: hidden; }
+.steps button { border: 0; border-left: 1px solid var(--rule-2); border-radius: 0; background: var(--sheet); }
+.steps button:first-child { border-left: 0; }
+.steps button.on { background: var(--blue); color: #fff; }
+.nota { padding: 6px 0; border-bottom: 1px solid var(--rule-2); margin-bottom: 6px; }

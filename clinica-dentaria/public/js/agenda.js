@@ -224,7 +224,7 @@ async function drawAgenda() {
 
 function estadoRapido(m) {
   const pres = L().estados.find(e => e.nome === 'Presente'), falt = L().estados.find(e => e.categoria === 'FALTAS');
-  return `<span class="nowrap">${pres ? `<button class="sm" data-est="${pres.id}" data-mid="${m.id}" title="Marcar presente">Presente</button>` : ''}
+  return `<span class="nowrap"><a class="btn sm" href="#/consulta/${m.id}">Consulta</a> ${pres ? `<button class="sm" data-est="${pres.id}" data-mid="${m.id}" title="Marcar presente">Presente</button>` : ''}
     ${falt ? `<button class="sm" data-est="${falt.id}" data-mid="${m.id}" title="Marcar falta">Faltou</button>` : ''}</span>`;
 }
 function bindEstadoRapido(root, after = drawAgenda) {
@@ -262,6 +262,7 @@ async function openMarcacao({ id, date, hora, medico_id, gabinete_id, paciente, 
     if (!await confirmDlg('Eliminar definitivamente esta marcação? (Para manter histórico, altere o estado para Desmarcada.)', 'Eliminar', true)) return false;
     await DEL('marcacoes/' + m.id); toast('Marcação eliminada'); refreshCurrent();
   } });
+  if (m) buttons.push({ label: 'Abrir consulta', onClick: () => go('#/consulta/' + m.id) });
   if (m) buttons.push({ label: 'Ficha', onClick: () => go('#/paciente/' + m.paciente_id) });
   if (m) buttons.push({ label: 'SMS', onClick: async () => { await smsMarcacoes([m.id]); return false; } });
   buttons.push({ label: 'Cancelar' });

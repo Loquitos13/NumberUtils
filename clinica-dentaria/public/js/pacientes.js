@@ -185,6 +185,7 @@ async function tabMarcacoes(el, p) {
     <button class="primary" id="pm-new">Nova marcação</button></div>${table(ms, [
     { h: 'Data', f: m => `<b>${fmtDT(m.inicio)}</b>` }, { h: 'Médico', f: m => esc(m.medico_nome) }, { h: 'Serviço', f: m => esc(m.servico_nome) },
     { h: 'Gabinete', f: m => esc(m.gabinete_nome) }, { h: 'Estado', f: m => `<span class="dot" style="background:${esc(m.estado_cor)}"></span>${esc(m.estado_nome)}` }, { h: 'Notas', f: m => esc(m.notas) },
+    { h: '', cls: 'right', f: m => `<a class="btn sm" href="#/consulta/${m.id}">Consulta</a>` },
   ], { onClick: m => openMarcacao({ id: m.id }) })}</div>`;
   $('#pm-new').onclick = () => openMarcacao({ paciente: p, medico_id: p.medico_id });
 }
@@ -219,6 +220,7 @@ function toothSVG(n, st) {
   if (st.whole.fratura) extra += '<polyline points="8,6 18,18 12,22 30,34" fill="none" style="fill:none;stroke:#f97316" stroke-width="2.5"/>';
   if (st.whole.mobilidade) extra += '<text x="20" y="25" text-anchor="middle" font-size="14" font-weight="700" fill="#78716c">M</text>';
   if (st.planned) extra += '<circle cx="34" cy="6" r="4.5" style="fill:#b8202d;stroke:#fff"/>';
+  if (st.done) extra += '<circle cx="6" cy="6" r="4.5" style="fill:#2f5cc4;stroke:#fff"/>';
   return `<svg viewBox="0 0 40 40">
     <path data-f="${fp.top}" d="M2 2 L38 2 L28 12 L12 12 Z" style="fill:${fill(fp.top)}"/>
     <path data-f="${fp.bottom}" d="M2 38 L38 38 L28 28 L12 28 Z" style="fill:${fill(fp.bottom)}"/>
@@ -227,69 +229,7 @@ function toothSVG(n, st) {
     <rect data-f="O" x="12" y="12" width="16" height="16" style="fill:${fill('O')}"/>${extra}</svg>`;
 }
 
-async function tabOdonto(el, p) {
-  const [conds, trat] = await Promise.all([GET('t/dentes_condicoes?paciente_id=' + p.id), GET(`pacientes/${p.id}/tratamentos`)]);
-  const state = {};
-  const S = n => (state[n] ||= { faces: {}, whole: {}, planned: false, items: [] });
-  for (const c of conds) {
-    const s = S(c.dente); s.items.push({ kind: 'c', ...c });
-    const faces = (c.faces || '').split('').filter(f => FACES[f]);
-    if (faces.length && ['carie', 'restauracao', 'selante'].includes(c.condicao)) faces.forEach(f => s.faces[f] = COND[c.condicao].c);
-    else s.whole[c.condicao] = true;
-  }
-  for (const t of trat) {
-    if (!t.dente) continue;
-    for (const d of String(t.dente).split(/[,\s]+/).filter(Boolean)) {
-      const s = S(d); s.items.push({ kind: 't', ...t });
-      if (t.estado === 'planeado') s.planned = true;
-      if (t.estado === 'realizado' && t.faces) t.faces.split('').forEach(f => { if (FACES[f]) s.faces[f] = '#3b82f6'; });
-    }
-  }
-  const showDec = el.dataset.dec === '1';
-  const arc = rows => `<div class="arc">${rows.map((q, i) => q.map(n => `<div class="tooth ${String(n) === el.dataset.sel ? 'sel' : ''}" data-n="${n}">${rows === Q_LO || rows === D_LO ? '' : `<span class="n">${n}</span>`}${toothSVG(n, S(String(n)))}${rows === Q_LO || rows === D_LO ? `<span class="n">${n}</span>` : ''}</div>`).join('') + (i === 0 ? '<div class="gap"></div>' : '')).join('')}</div>`;
-  el.innerHTML = `<div class="grid" style="grid-template-columns:minmax(0,1.6fr) minmax(0,1fr)">
-    <div class="card"><div class="row between"><h3>Odontograma</h3><label class="check"><input type="checkbox" id="od-dec" ${showDec ? 'checked' : ''}> Dentição decídua</label></div>
-      <div class="odonto">${arc(Q_UP)}${showDec ? arc(D_UP) + '<div style="height:10px"></div>' + arc(D_LO) : '<div style="height:14px;border-top:1px dashed var(--line);width:90%"></div>'}${arc(Q_LO)}</div>
-      <div class="odonto-legend">${CONDICOES.map(([, l, c]) => `<span style="--c:${c}">${l}</span>`).join('')}<span style="--c:#b8202d">Tratamento planeado</span></div>
-      <p class="muted small center">Clique num dente (ou numa face) para ver o histórico e registar condições ou tratamentos.</p></div>
-    <div class="card" id="od-panel"><div class="empty">Selecione um dente</div></div></div>`;
-  $('#od-dec').onchange = e => { el.dataset.dec = e.target.checked ? '1' : '0'; tabOdonto(el, p); };
-  const openPanel = (n, face) => {
-    el.dataset.sel = n;
-    $$('.tooth', el).forEach(t => t.classList.toggle('sel', t.dataset.n === n));
-    const s = S(n);
-    const panel = $('#od-panel');
-    const lk = L();
-    panel.innerHTML = `<h3>Dente ${esc(n)}</h3>
-      ${s.items.length ? s.items.map(i => i.kind === 'c'
-        ? `<div class="row between small" style="padding:4px 0;border-bottom:1px solid var(--line2)"><span><span class="dot" style="background:${COND[i.condicao]?.c}"></span>${esc(COND[i.condicao]?.l || i.condicao)}${i.faces ? ' (' + esc(i.faces) + ')' : ''} <span class="muted">${fmtDate(i.data)}</span></span><button class="ghost sm icon" data-dc="${i.id}" aria-label="Eliminar" title="Eliminar"><i data-ic="trash"></i></button></div>`
-        : `<div class="small" style="padding:4px 0;border-bottom:1px solid var(--line2)"><span class="badge ${i.estado === 'realizado' ? 'info' : 'warn'}">${esc(i.estado)}</span> ${esc(i.descricao)}${i.faces ? ' (' + esc(i.faces) + ')' : ''} <span class="muted">${fmtDate(i.data)}</span></div>`).join('') : '<p class="muted small">Sem registos neste dente.</p>'}
-      <h3 style="margin-top:14px">Faces</h3>
-      <div>${Object.entries(FACES).map(([k, l]) => `<label class="check"><input type="checkbox" name="face" value="${k}" ${face === k ? 'checked' : ''}> ${k} <span class="muted small">${l}</span></label>`).join('<br>')}</div>
-      <h3 style="margin-top:14px">Registar condição</h3>
-      <div class="row">${sel('cond', optsArr(CONDICOES.map(([k, l]) => [k, l])), 'id="od-cond" style="flex:1"')}<button id="od-addc">Registar</button></div>
-      <h3 style="margin-top:14px">Adicionar tratamento</h3>
-      ${sel('serv', opts(ativos(lk.servicos), null, { empty: 'Escolha o tratamento…', label: x => `${x.codigo || ''} ${x.nome} — ${eur(x.preco)}` }), 'id="od-serv"')}
-      <div class="row" style="margin-top:8px">${sel('med', opts(ativos(lk.medicos), App.user.medico_id || p.medico_id), 'id="od-med" style="flex:1"')}
-        ${sel('est', optsArr([['planeado', 'Planeado'], ['realizado', 'Realizado']]), 'id="od-est" style="width:130px"')}</div>
-      <div class="row end" style="margin-top:8px"><button class="primary" id="od-addt">Adicionar</button></div>`;
-    const faces = () => $$('input[name=face]:checked', panel).map(i => i.value).join('');
-    $('#od-addc').onclick = async () => {
-      await act(() => POST('t/dentes_condicoes', { paciente_id: p.id, dente: n, condicao: $('#od-cond').value, faces: faces(), data: isoDate() }), 'Condição registada');
-      tabOdonto(el, p);
-    };
-    $('#od-addt').onclick = async () => {
-      const sv = byId(lk.servicos, $('#od-serv').value); if (!sv) return toast('Escolha o tratamento', true);
-      const ent = byId(lk.entidades, p.entidade_id);
-      await act(() => POST('t/tratamentos', { paciente_id: p.id, medico_id: Number($('#od-med').value), servico_id: sv.id, descricao: sv.nome, dente: n, faces: faces(),
-        estado: $('#od-est').value, data: isoDate(), preco: sv.preco, iva: sv.iva, iva_id: sv.iva_id, desconto_pct: ent?.desconto_pct || 0 }), 'Tratamento adicionado');
-      tabOdonto(el, p);
-    };
-    $$('[data-dc]', panel).forEach(b => b.onclick = async () => { await DEL('t/dentes_condicoes/' + b.dataset.dc); tabOdonto(el, p); });
-  };
-  $$('.tooth', el).forEach(t => t.onclick = e => openPanel(t.dataset.n, e.target.closest('[data-f]')?.dataset.f));
-  if (el.dataset.sel) openPanel(el.dataset.sel);
-}
+function tabOdonto(el, p) { return odontograma(el, p); }
 
 // ---------- tratamentos ----------
 async function tabTratamentos(el, p) {
