@@ -1,0 +1,14 @@
+{
+  "name": "clinica-dentaria",
+  "version": "1.0.0",
+  "description": "Aplicação de gestão para clínicas de medicina dentária (agenda, fichas, odontograma, faturação, orçamentos, próteses, stocks, estatísticas)",
+  "main": "server.js",
+  "private": true,
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=22.13"
+  },
+  "license": "UNLICENSED"
+}
