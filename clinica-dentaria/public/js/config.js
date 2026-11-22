@@ -34,7 +34,7 @@ const CRUD_DEFS = {
 
 function cellView(c, r) {
   const v = r[c.k];
-  if (c.t === 'bool') return v ? '✔' : '<span class="muted">—</span>';
+  if (c.t === 'bool') return v ? 'Sim' : '<span class="muted">—</span>';
   if (c.t === 'color') return `<span class="dot" style="background:${esc(v)}"></span>`;
   if (c.t === 'sel') { const o = byId(c.list(), v); return esc(o ? (c.lab ? c.lab(o) : o.nome) : ''); }
   if (c.t === 'opt') { const os = typeof c.opts === 'function' ? c.opts() : c.opts; return esc(((os.find(o => o[0] === v) || [])[1] || v || '').split(' — ')[0]); }
@@ -54,7 +54,7 @@ function cellInput(c, v) {
 async function crudSection(body, def) {
   const rows = await GET('t/' + def.table);
   body.innerHTML = `<div class="row" style="margin-bottom:10px"><input id="cr-q" placeholder="Filtrar…" style="max-width:260px"><div class="spacer"></div>
-    <button id="cr-csv">⇩ Exportar</button><button class="primary" id="cr-new">＋ ${esc(def.title)}</button></div><div id="cr-tbl"></div>`;
+    <button id="cr-csv">Exportar</button><button class="primary" id="cr-new">Adicionar</button></div><div id="cr-tbl"></div>`;
   const cols = def.cols.map(c => ({ h: c.h, cls: c.t === 'num' ? 'right' : '', f: r => cellView(c, r), csv: r => r[c.k] }));
   const draw = () => {
     const q = $('#cr-q').value.toLowerCase();
@@ -64,7 +64,7 @@ async function crudSection(body, def) {
   const edit = r => {
     const isNew = !r; r = r || { ativo: 1 };
     const buttons = [];
-    if (!isNew) buttons.push({ label: '🗑 Eliminar', cls: 'danger', left: true, onClick: async () => {
+    if (!isNew) buttons.push({ label: 'Eliminar', cls: 'danger', left: true, onClick: async () => {
       if (!await confirmDlg(`Eliminar "${r.nome || r.abreviatura}"?`, 'Eliminar', true)) return false;
       await DEL(`t/${def.table}/${r.id}`); toast('Eliminado'); await refreshLookups(); render();
     } });
@@ -147,9 +147,9 @@ route('config', async (view, [sec = 'clinica']) => {
     if (!admin) { body.innerHTML = '<div class="empty">Sem permissão</div>'; return; }
     const us = await GET('users');
     const PERFIS = [['admin', 'Administrador'], ['medico', 'Médico'], ['rececao', 'Receção'], ['assistente', 'Assistente']];
-    body.innerHTML = `<div class="row end" style="margin-bottom:10px"><button class="primary" id="us-new">＋ Utilizador</button></div>${table(us, [
+    body.innerHTML = `<div class="row end" style="margin-bottom:10px"><button class="primary" id="us-new">Novo utilizador</button></div>${table(us, [
       { h: 'Nome', f: u => `<b>${esc(u.nome)}</b>` }, { h: 'Login', f: u => esc(u.login) }, { h: 'Perfil', f: u => esc((PERFIS.find(p => p[0] === u.perfil) || [])[1]) },
-      { h: 'Médico associado', f: u => esc(byId(L().medicos, u.medico_id)?.nome || '') }, { h: 'Ativo', f: u => u.ativo ? '✔' : '—' }], { onClick: u => editU(u), rowCls: u => u.ativo ? '' : 'off' })}
+      { h: 'Médico associado', f: u => esc(byId(L().medicos, u.medico_id)?.nome || '') }, { h: 'Ativo', f: u => u.ativo ? 'Sim' : 'Não' }], { onClick: u => editU(u), rowCls: u => u.ativo ? '' : 'off' })}
       <p class="muted small">Perfis: <b>Administrador</b> — acesso total incl. configuração; <b>Médico</b> — agenda filtrada pelo próprio; <b>Receção/Assistente</b> — operação diária.</p>`;
     const editU = u => {
       const isNew = !u; u = u || { perfil: 'rececao', ativo: 1 };
@@ -176,7 +176,7 @@ route('config', async (view, [sec = 'clinica']) => {
   if (sec === 'backup') {
     body.innerHTML = `<h3>Cópia de segurança</h3><p>Descarrega uma cópia completa da base de dados (pacientes, agenda, faturação, stocks e configuração).
       Guarde-a num disco externo ou na nuvem. Recomenda-se uma cópia diária.</p>
-      <p><a class="btn primary" href="/api/backup" ${admin ? '' : 'onclick="return false" style="opacity:.5"'}>⇩ Descarregar cópia de segurança</a></p>
+      <p><a class="btn primary" href="/api/backup" ${admin ? '' : 'onclick="return false" style="opacity:.5"'}>Descarregar cópia de segurança</a></p>
       <p class="muted small">Para restaurar: pare o servidor, substitua o ficheiro <code>data/clinica.db</code> pela cópia (renomeada para clinica.db) e volte a iniciar.</p>`;
   }
 });

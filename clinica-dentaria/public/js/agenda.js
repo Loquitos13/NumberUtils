@@ -23,7 +23,7 @@ route('agenda', async (view, params) => {
   if (!AG.medicoSemana) AG.medicoSemana = App.user.medico_id || meds[0]?.id;
   view.innerHTML = `<div class="agenda-wrap">
     <div class="agenda-side">
-      ${L().config.agenda_mensagem ? `<div class="alert info" style="white-space:pre-wrap">📌 ${esc(L().config.agenda_mensagem)}</div>` : ''}
+      ${L().config.agenda_mensagem ? `<div class="alert info" style="white-space:pre-wrap">${esc(L().config.agenda_mensagem)}</div>` : ''}
       <div class="card"><div id="minical" class="mini-cal"></div></div>
       <div class="card">
         <h3>Vista</h3>
@@ -33,19 +33,19 @@ route('agenda', async (view, params) => {
         <div id="ag-filter"></div>
       </div>
       <div class="card"><div class="row between"><h3 style="margin:0">Lista de espera</h3><span class="badge warn" id="ag-esp-n">…</span></div>
-        <div class="row" style="margin-top:8px"><button class="sm" id="ag-esp">Ver lista</button><button class="sm" id="ag-esp-add">＋ Adicionar</button></div></div>
+        <div class="row" style="margin-top:8px"><button class="sm" id="ag-esp">Ver lista</button><button class="sm" id="ag-esp-add">Adicionar</button></div></div>
       <div class="card"><h3>Estados</h3><div class="legend">${ativos(L().estados).map(e => `<span><span class="dot" style="background:${esc(e.cor)}"></span>${esc(e.nome)}</span>`).join('')}</div></div>
     </div>
     <div class="agenda-main">
       <div class="page-head">
-        <button id="ag-prev">◀</button><button id="ag-today">Hoje</button><button id="ag-next">▶</button>
+        <button id="ag-prev" class="icon" aria-label="Anterior" title="Anterior"><i data-ic="chevron-left"></i></button><button id="ag-today">Hoje</button><button id="ag-next" class="icon" aria-label="Seguinte" title="Seguinte"><i data-ic="chevron-right"></i></button>
         <h1 id="ag-title" style="font-size:1.2rem"></h1>
         <span id="ag-hol" class="badge danger hidden"></span>
         <div class="spacer"></div>
-        <button id="ag-vagas">🔎 Procurar vaga</button>
-        <button id="ag-bloq" title="Férias, congressos, ausências">⛔ Bloquear</button>
-        <button id="ag-sms">✉ Lembretes</button>
-        <button id="ag-print">🖨 Imprimir</button>
+        <button id="ag-vagas">Procurar vaga</button>
+        <button id="ag-bloq" title="Férias, congressos, ausências">Bloquear</button>
+        <button id="ag-sms">Lembretes</button>
+        <button id="ag-print">Imprimir</button>
       </div>
       <div id="ag-body"></div>
     </div></div>`;
@@ -87,7 +87,7 @@ async function drawMiniCal() {
   const fer = await loadFeriados(y);
   const first = new Date(y, m - 1, 1);
   const start = new Date(first); start.setDate(1 - ((first.getDay() + 6) % 7));
-  let h = `<div class="hd"><button class="ghost sm" data-p>‹</button><span>${MESES[m - 1]} ${y}</span><button class="ghost sm" data-n>›</button></div>
+  let h = `<div class="hd"><button class="ghost sm icon" data-p aria-label="Mês anterior"><i data-ic="chevron-left"></i></button><span>${MESES[m - 1]} ${y}</span><button class="ghost sm icon" data-n aria-label="Mês seguinte"><i data-ic="chevron-right"></i></button></div>
     <table><tr>${['S', 'T', 'Q', 'Q', 'S', 'S', 'D'].map(d => `<th>${d}</th>`).join('')}</tr>`;
   const d = new Date(start); const hoje = isoDate();
   for (let w = 0; w < 6; w++) {
@@ -150,7 +150,7 @@ async function drawAgenda() {
       { h: 'Estado', f: m => `<span class="badge" style="background:${esc(m.estado_cor)}22;color:${esc(m.estado_cor)}">${esc(m.estado_nome)}</span>` },
       { h: '', cls: 'right', f: m => estadoRapido(m) },
     ], { onClick: m => openMarcacao({ id: m.id }), empty: 'Sem marcações neste dia' })}</div>
-    ${bloqs.length ? `<div class="card"><h3>Bloqueios / ausências</h3>${bloqs.map(b => `<div class="row" style="padding:4px 0"><span class="badge danger">${esc(b.tipo_nome)}</span> ${esc(b.medico_nome || 'Todos os médicos')} · ${fmtDT(b.inicio)} → ${fmtDT(b.fim)} ${esc(b.motivo || '')}<button class="ghost sm" data-bl="${b.id}">✎</button></div>`).join('')}</div>` : ''}`;
+    ${bloqs.length ? `<div class="card"><h3>Bloqueios / ausências</h3>${bloqs.map(b => `<div class="row" style="padding:4px 0"><span class="badge danger">${esc(b.tipo_nome)}</span> ${esc(b.medico_nome || 'Todos os médicos')} · ${fmtDT(b.inicio)} → ${fmtDT(b.fim)} ${esc(b.motivo || '')}<button class="ghost sm icon" data-bl="${b.id}" aria-label="Editar" title="Editar"><i data-ic="edit"></i></button></div>`).join('')}</div>` : ''}`;
     $$('[data-bl]', body).forEach(x => x.onclick = () => editBloqueio(byId(bloqs, x.dataset.bl)));
     bindEstadoRapido(body);
     return;
@@ -191,16 +191,16 @@ async function drawAgenda() {
       const w = 100 / nL;
       const inact = ['INATIVAS', 'FALTAS'].includes(e.estado_categoria);
       const sub = AG.mode === 'gabinetes' ? e.medico_nome : (e.servico_nome || '');
-      h += `<div class="ev ${inact ? 'inact' : ''}" data-id="${e.id}" style="top:${top}px;height:${hh}px;left:calc(${e._lane * w}% + 3px);width:calc(${w}% - 6px);right:auto;border-left-color:${esc(e.estado_cor)};background:${esc(e.estado_cor)}18"
+      h += `<div class="ev ${inact ? 'inact' : ''}" data-id="${e.id}" style="top:${top}px;height:${hh}px;left:calc(${e._lane * w}% + 3px);width:calc(${w}% - 6px);right:auto;--st:${esc(e.estado_cor)}"
         title="${esc(`${fmtTime(e.inicio)}-${fmtTime(e.fim)} ${e.paciente_nome}\n${e.servico_nome || ''}\n${e.estado_nome}${e.notas ? '\n' + e.notas : ''}`)}">
-        <div class="h">${fmtTime(e.inicio)} ${esc(e.paciente_nome)}</div><div class="small">${esc(sub)}${e.notas ? ' 📝' : ''}${e.primeira ? ' ⭐' : ''}</div></div>`;
+        <div class="h"><span class="dot"></span><span class="num">${fmtTime(e.inicio)}</span> ${esc(e.paciente_nome)}</div><div class="small">${esc(sub)}${e.notas ? ' · notas' : ''}${e.primeira ? ' · 1.ª consulta' : ''}</div></div>`;
     }
     // bloqueios (férias, congressos, ausências)
     if (AG.mode !== 'gabinetes') for (const b of bloqs.filter(b => !b.medico_id || b.medico_id === c.medico_id)) {
       const s0 = b.inicio.slice(0, 10) < c.date ? t0 : Math.max(t0, toMin(fmtTime(b.inicio)));
       const e0 = b.fim.slice(0, 10) > c.date ? t1 : Math.min(t1, toMin(fmtTime(b.fim)));
       if (b.inicio.slice(0, 10) > c.date || b.fim.slice(0, 10) < c.date || e0 <= s0) continue;
-      h += `<div class="blk" data-bl="${b.id}" style="top:${(s0 - t0) * pxMin}px;height:${(e0 - s0) * pxMin}px" title="${esc(b.tipo_nome + (b.motivo ? ': ' + b.motivo : ''))}">⛔ ${esc(b.tipo_nome)}${b.motivo ? ' — ' + esc(b.motivo) : ''}</div>`;
+      h += `<div class="blk" data-bl="${b.id}" style="top:${(s0 - t0) * pxMin}px;height:${(e0 - s0) * pxMin}px" title="${esc(b.tipo_nome + (b.motivo ? ': ' + b.motivo : ''))}">${esc(b.tipo_nome)}${b.motivo ? ' — ' + esc(b.motivo) : ''}</div>`;
     }
     if (c.date === isoDate() && nowMin >= t0 && nowMin <= t1) h += `<div class="now-line" style="top:${(nowMin - t0) * pxMin}px"></div>`;
     h += '</div>';
@@ -224,8 +224,8 @@ async function drawAgenda() {
 
 function estadoRapido(m) {
   const pres = L().estados.find(e => e.nome === 'Presente'), falt = L().estados.find(e => e.categoria === 'FALTAS');
-  return `<span class="nowrap">${pres ? `<button class="sm" data-est="${pres.id}" data-mid="${m.id}" title="Marcar presente">✔ Presente</button>` : ''}
-    ${falt ? `<button class="sm" data-est="${falt.id}" data-mid="${m.id}" title="Marcar falta">✖ Faltou</button>` : ''}</span>`;
+  return `<span class="nowrap">${pres ? `<button class="sm" data-est="${pres.id}" data-mid="${m.id}" title="Marcar presente">Presente</button>` : ''}
+    ${falt ? `<button class="sm" data-est="${falt.id}" data-mid="${m.id}" title="Marcar falta">Faltou</button>` : ''}</span>`;
 }
 function bindEstadoRapido(root, after = drawAgenda) {
   $$('[data-est]', root).forEach(b => b.onclick = async () => {
@@ -245,7 +245,7 @@ async function openMarcacao({ id, date, hora, medico_id, gabinete_id, paciente, 
   const estados = ativos(lk.estados);
   const body = `<form class="form-grid" onsubmit="return false">
     <div class="s3">${pacField('paciente_id', m?.paciente_id ?? paciente?.id, m?.paciente_nome ?? paciente?.nome)}</div>
-    <div class="field"><label class="f">&nbsp;</label><button type="button" id="mk-newpac" style="width:100%">＋ Novo paciente</button></div>
+    <div class="field"><label class="f">&nbsp;</label><button type="button" id="mk-newpac" style="width:100%">Novo paciente</button></div>
     ${fld('Médico', sel('medico_id', opts(lk.medicos, medId, { only: x => x.ativo })), 's2')}
     ${fld('Gabinete', sel('gabinete_id', opts(lk.gabinetes, m?.gabinete_id ?? gabinete_id, { empty: '—', only: x => x.ativo })), 's2')}
     ${fld('Serviço / motivo', sel('servico_id', opts(lk.servicos, m?.servico_id ?? servico_id, { empty: '—', only: x => x.ativo, label: s => `${s.codigo ? s.codigo + ' · ' : ''}${s.nome} (${s.duracao_min} min)` })), 's4')}
@@ -258,12 +258,12 @@ async function openMarcacao({ id, date, hora, medico_id, gabinete_id, paciente, 
     <div class="s4 small muted" id="mk-info"></div>
   </form>`;
   const buttons = [];
-  if (m) buttons.push({ label: '🗑 Eliminar', cls: 'danger', left: true, onClick: async () => {
+  if (m) buttons.push({ label: 'Eliminar', cls: 'danger', left: true, onClick: async () => {
     if (!await confirmDlg('Eliminar definitivamente esta marcação? (Para manter histórico, altere o estado para Desmarcada.)', 'Eliminar', true)) return false;
     await DEL('marcacoes/' + m.id); toast('Marcação eliminada'); refreshCurrent();
   } });
-  if (m) buttons.push({ label: '👤 Ficha', onClick: () => go('#/paciente/' + m.paciente_id) });
-  if (m) buttons.push({ label: '✉ SMS', onClick: async () => { await smsMarcacoes([m.id]); return false; } });
+  if (m) buttons.push({ label: 'Ficha', onClick: () => go('#/paciente/' + m.paciente_id) });
+  if (m) buttons.push({ label: 'SMS', onClick: async () => { await smsMarcacoes([m.id]); return false; } });
   buttons.push({ label: 'Cancelar' });
   buttons.push({ label: 'Guardar', cls: 'primary', onClick: async c => {
     const f = readForm($('form', c.body));
@@ -287,7 +287,7 @@ async function openMarcacao({ id, date, hora, medico_id, gabinete_id, paciente, 
     const info = async pid => {
       if (!pid) { $('#mk-info', c.body).textContent = ''; return; }
       const p = await GET(`pacientes/${pid}/resumo`);
-      const al = [p.anamnese.alergias && `⚠ Alergias: ${p.anamnese.alergias}`, p.saldo.saldo > 0 && `Saldo em dívida: ${eur(p.saldo.saldo)}`,
+      const al = [p.anamnese.alergias && `Alergias: ${p.anamnese.alergias}`, p.saldo.saldo > 0 && `Saldo em dívida: ${eur(p.saldo.saldo)}`,
         p.telemovel && `Tel.: ${p.telemovel}`, p.ultima && `Última: ${fmtDT(p.ultima.inicio)} (${p.ultima.estado_nome})`].filter(Boolean);
       $('#mk-info', c.body).innerHTML = al.map(esc).join(' · ');
     };
@@ -312,7 +312,7 @@ function procurarVaga(preset = {}) {
       <div class="s4">${chk('manha', 1, 'Manhã')}${chk('tarde', 1, 'Tarde')}${chk('noite', 0, 'Noite (após 20h)')}${chk('feriados', 0, 'Incluir feriados')}</div>
       <div class="s4"><label class="f">Dias da semana</label>${[1, 2, 3, 4, 5, 6, 0].map(d => `<label class="check"><input type="checkbox" data-dia="${d}" ${diasAb.includes(String(d)) ? 'checked' : ''}> ${DIAS_C[d]}</label>`).join('')}</div>
     </form><div id="vg-res"></div>`,
-  buttons: [{ label: 'Fechar' }, { label: '🔎 Pesquisar', cls: 'primary', onClick: async c => {
+  buttons: [{ label: 'Fechar' }, { label: 'Pesquisar', cls: 'primary', onClick: async c => {
     const f = readForm($('form', c.body));
     const dias = $$('[data-dia]:checked', c.body).map(x => x.dataset.dia).join(',');
     if (!dias) throw new Error('Escolha pelo menos um dia da semana');
@@ -334,7 +334,7 @@ function editBloqueio(b, { date, medico_id } = {}) {
   b = b || { tipo: 'ferias', medico_id, inicio: `${date || isoDate()}T00:00`, fim: `${date || isoDate()}T23:59` };
   const tipos = Object.entries(lk.tipos_bloqueio);
   const buttons = [];
-  if (!isNew) buttons.push({ label: '🗑 Remover', cls: 'danger', left: true, onClick: async () => { await DEL('t/bloqueios/' + b.id); toast('Bloqueio removido'); refreshCurrent(); } });
+  if (!isNew) buttons.push({ label: 'Remover', cls: 'danger', left: true, onClick: async () => { await DEL('t/bloqueios/' + b.id); toast('Bloqueio removido'); refreshCurrent(); } });
   buttons.push({ label: 'Cancelar' }, { label: 'Guardar', cls: 'primary', onClick: async c => {
     const f = readForm($('form', c.body));
     const inicio = `${f.d1}T${f.dia_todo ? '00:00' : f.h1}`, fim = `${f.d2}T${f.dia_todo ? '23:59' : f.h2}`;
@@ -367,9 +367,9 @@ async function listaEspera() {
   const m = modal({ title: `Lista de espera (${rows.length})`, size: 'lg', body: table(rows, [
     { h: 'Desde', f: r => fmtDate(r.criado_em) }, { h: 'Paciente', f: r => `<b>${esc(r.paciente_nome)}</b><br><span class="small muted">${esc(r.telemovel)}</span>` },
     { h: 'Médico', f: r => esc(r.medico_nome) }, { h: 'Serviço', f: r => esc(r.servico_nome) }, { h: 'Preferência', f: r => esc(r.preferencia) }, { h: 'Notas', f: r => esc(r.notas) },
-    { h: '', cls: 'right', f: r => `<span class="nowrap"><button class="sm primary" data-mk="${r.id}">Marcar</button> <button class="sm" data-vg="${r.id}">Vagas</button> <button class="ghost sm" data-ed="${r.id}">✎</button></span>` },
+    { h: '', cls: 'right', f: r => `<span class="nowrap"><button class="sm primary" data-mk="${r.id}">Marcar</button> <button class="sm" data-vg="${r.id}">Vagas</button> <button class="ghost sm icon" data-ed="${r.id}" aria-label="Editar" title="Editar"><i data-ic="edit"></i></button></span>` },
   ], { empty: 'Ninguém em lista de espera' }),
-  buttons: [{ label: '＋ Adicionar', left: true, onClick: () => editEspera(null) }, { label: 'Fechar' }] });
+  buttons: [{ label: 'Adicionar', left: true, onClick: () => editEspera(null) }, { label: 'Fechar' }] });
   const pac = r => ({ id: r.paciente_id, nome: r.paciente_nome });
   $$('[data-mk]', m.body).forEach(b => b.onclick = async () => {
     const r = byId(rows, b.dataset.mk);

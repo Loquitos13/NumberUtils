@@ -4,13 +4,13 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Clínica Dentária — Gestão</title>
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🦷</text></svg>">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='22' fill='%23162c5b'/><path d='M30 28c8-6 14 2 20 2s12-8 20-2 6 22 0 30-6 20-10 20-6-14-10-14-6 14-10 14-4-12-10-20-8-24 0-30z' fill='%23fbfaf7'/></svg>">
   <link rel="stylesheet" href="app.css">
 </head>
 <body>
   <div id="login" class="hidden">
     <form id="login-form">
-      <h1>🦷 Gestão Clínica</h1>
+      <h1 class="brandmark"><i data-ic="tooth"></i> OralSaúde</h1>
       <p class="muted" id="login-clinica">Inicie sessão para continuar</p>
       <div class="field"><label class="f">Utilizador</label><input name="login" autocomplete="username" required autofocus></div>
       <div class="field"><label class="f">Palavra-passe</label><input name="password" type="password" autocomplete="current-password" required></div>
@@ -21,18 +21,18 @@
 
   <div id="app" class="hidden">
     <aside id="side">
-      <div class="logo">🦷 <span>Gestão Clínica<small id="side-clinica"></small></span></div>
+      <div class="logo"><i data-ic="tooth"></i><span>OralSaúde<small id="side-clinica"></small></span></div>
       <nav id="nav"></nav>
       <div class="user"><div class="nm" id="user-name"></div>
-        <button class="sm" id="btn-pass" title="Alterar palavra-passe">🔑</button>
+        <button class="sm" id="btn-pass" title="Alterar palavra-passe" aria-label="Alterar palavra-passe" class="sm icon"><i data-ic="key"></i></button>
         <button class="sm" id="btn-logout">Sair</button></div>
     </aside>
     <main id="main">
       <div id="topbar">
         <div class="search ac"><input id="global-search" placeholder="Pesquisar paciente (nome, NIF, telemóvel, n.º)…  [Ctrl+K]"></div>
         <div class="spacer"></div>
-        <button class="primary" id="btn-new-marc">＋ Marcação</button>
-        <button id="btn-new-pac">＋ Paciente</button>
+        <button class="primary" id="btn-new-marc">Nova marcação</button>
+        <button id="btn-new-pac">Novo paciente</button>
       </div>
       <div id="view"></div>
     </main>

@@ -66,7 +66,7 @@ async function act(fn, okMsg) {
 function modal({ title, body = '', size = '', buttons = [], onOpen }) {
   const bg = document.createElement('div');
   bg.className = 'modal-bg';
-  bg.innerHTML = `<div class="modal ${size}"><header><h2>${esc(title)}</h2><button class="ghost" data-x>✕</button></header>
+  bg.innerHTML = `<div class="modal ${size}"><header><h2>${esc(title)}</h2><button class="ghost icon" data-x aria-label="Fechar"><i data-ic="x"></i></button></header>
     <div class="body"></div><footer></footer></div>`;
   const bodyEl = $('.body', bg);
   if (typeof body === 'string') bodyEl.innerHTML = body; else bodyEl.appendChild(body);
@@ -222,6 +222,37 @@ function bindPacField(root, name, onPick) {
   patientPicker(vis, p => { hid.value = p.id; vis.value = p.nome; onPick && onPick(p); });
   vis.addEventListener('input', () => { hid.value = ''; });
 }
+
+// ---------- ícones (SVG próprios, traço 1.6) ----------
+const ICONS = {
+  home: 'M3 10.5 12 3l9 7.5M5 9v11h5v-6h4v6h5V9',
+  calendar: 'M4 6h16v14H4zM4 10h16M8 3v4M16 3v4',
+  users: 'M9 11a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7zM2.5 20c.6-3.4 3.2-5.5 6.5-5.5s5.9 2.1 6.5 5.5M16 4.3a3.5 3.5 0 0 1 0 6.4M18 14.8c2 .7 3.2 2.5 3.5 5.2',
+  receipt: 'M6 3h12v18l-3-2-3 2-3-2-3 2zM9 8h6M9 12h6M9 16h3',
+  file: 'M6 3h8l4 4v14H6zM14 3v4h4M9 12h6M9 16h6',
+  tooth: 'M7.5 3.5C5 3.5 3.8 5.6 4.2 8.3c.4 2.5 1.4 3.8 1.8 6.2.5 3 1 6 2.4 6 1.6 0 1.6-5 3.6-5s2 5 3.6 5c1.4 0 1.9-3 2.4-6 .4-2.4 1.4-3.7 1.8-6.2.4-2.7-.8-4.8-3.3-4.8-1.9 0-2.6 1-4.5 1s-2.6-1-4.5-1z',
+  box: 'M3.5 7.5 12 3l8.5 4.5v9L12 21l-8.5-4.5zM3.5 7.5 12 12l8.5-4.5M12 12v9',
+  list: 'M9 6h11M9 12h11M9 18h11M4.5 6h.01M4.5 12h.01M4.5 18h.01',
+  chart: 'M4 20V4M4 20h16M8 16v-5M12 16V8M16 16v-3',
+  mail: 'M3.5 6h17v12h-17zM3.5 6l8.5 7 8.5-7',
+  settings: 'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM19 12a7 7 0 0 0-.1-1.2l2-1.5-2-3.4-2.3.9a7 7 0 0 0-2-1.2L14.3 3h-4l-.4 2.6a7 7 0 0 0-2 1.2l-2.3-.9-2 3.4 2 1.5A7 7 0 0 0 5.5 12c0 .4 0 .8.1 1.2l-2 1.5 2 3.4 2.3-.9a7 7 0 0 0 2 1.2l.4 2.6h4l.4-2.6a7 7 0 0 0 2-1.2l2.3.9 2-3.4-2-1.5c.1-.4.1-.8.1-1.2z',
+  search: 'M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14zM20 20l-4-4',
+  plus: 'M12 5v14M5 12h14',
+  edit: 'M4 20h4L19 9l-4-4L4 16zM13.5 6.5l4 4',
+  trash: 'M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6',
+  printer: 'M7 9V3h10v6M7 17H4v-7h16v7h-3M7 14h10v7H7z',
+  key: 'M7.5 16.5a4.5 4.5 0 1 1 0-9 4.5 4.5 0 0 1 0 9zM12 12h9M18 12v3.5M21 12v2.5',
+  clock: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM12 7v5l3 2',
+  x: 'M6 6l12 12M18 6 6 18',
+  'chevron-left': 'M15 5l-7 7 7 7',
+  'chevron-right': 'M9 5l7 7-7 7',
+  logout: 'M15 4h4v16h-4M10 8l-4 4 4 4M6 12h10',
+};
+function ic(name) { return `<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="${ICONS[name] || ''}"/></svg>`; }
+function hydrateIcons(root) { for (const i of root.querySelectorAll ? root.querySelectorAll('i[data-ic]') : []) i.outerHTML = ic(i.dataset.ic); }
+new MutationObserver(ms => { for (const m of ms) for (const n of m.addedNodes) if (n.nodeType === 1) { if (n.matches('i[data-ic]')) n.outerHTML = ic(n.dataset.ic); else hydrateIcons(n); } })
+  .observe(document.documentElement, { childList: true, subtree: true });
+document.addEventListener('DOMContentLoaded', () => hydrateIcons(document));
 
 // ---------- IVA ----------
 function ivaLabel(v) { return v ? `${num(v.taxa)}% ${v.codigo || ''}${v.regiao && v.regiao !== 'PT' ? ' ' + v.regiao : ''}${v.isencao_cod ? ' · ' + v.isencao_cod : ''}` : ''; }

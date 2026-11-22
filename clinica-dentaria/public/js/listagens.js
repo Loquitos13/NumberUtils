@@ -58,7 +58,7 @@ route('listagens', async (view, [key = 'agenda-medico']) => {
         ${fs.includes('paciente') ? `<div style="min-width:260px">${pacField('paciente_id', st.paciente_id, st.paciente_nome)}</div>` : ''}
         <div class="field"><label class="f">&nbsp;</label><button class="primary" id="ls-go">Gerar listagem</button></div>
         <div class="spacer"></div>
-        <div class="field"><label class="f">&nbsp;</label><span class="row"><button id="ls-csv" disabled>⇩ Excel (CSV)</button><button id="ls-print" disabled>🖨 Imprimir</button></span></div>
+        <div class="field"><label class="f">&nbsp;</label><span class="row"><button id="ls-csv" disabled>Excel (CSV)</button><button id="ls-print" disabled>Imprimir</button></span></div>
       </form></div><div class="card" id="ls-res"><div class="empty">Defina os filtros e clique em "Gerar listagem".</div></div></div></div>`;
   const form = $('#ls-f');
   if (fs.includes('paciente')) bindPacField(form, 'paciente_id', p => { st.paciente_nome = p.nome; });

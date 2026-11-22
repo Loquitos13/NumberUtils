@@ -15,8 +15,8 @@ function linhasEditor(root, linhas, onChange) {
         <td>${inp('descricao', l.descricao)}</td><td>${inp('dente', l.dente)}</td>
         <td>${inp('qtd', l.qtd ?? 1, 'type="number" step="1" min="0"')}</td><td>${inp('preco', l.preco ?? 0, 'type="number" step="0.01"')}</td>
         <td>${inp('desconto_pct', l.desconto_pct ?? 0, 'type="number" step="0.01"')}</td><td>${sel('iva_id', ivaOpts(ivaFix(l).iva_id))}</td>
-        <td class="right bold" data-tot></td><td>${l.tratamento_id ? '<span title="Tratamento associado">🦷</span>' : ''}<button type="button" class="ghost sm" data-rm>✕</button></td></tr>`).join('')}</tbody></table></div>
-      <div class="row between" style="margin-top:8px"><button type="button" class="sm" data-add>＋ Linha</button>
+        <td class="right bold" data-tot></td><td>${l.tratamento_id ? '<span title="Tratamento associado" class="muted"><i data-ic="tooth"></i></span>' : ''}<button type="button" class="ghost sm icon" data-rm aria-label="Remover linha"><i data-ic="x"></i></button></td></tr>`).join('')}</tbody></table></div>
+      <div class="row between" style="margin-top:8px"><button type="button" class="sm" data-add>Adicionar linha</button>
       <div id="le-tot" class="right"></div></div>`;
     $$('tr[data-i]', root).forEach(tr => {
       const i = Number(tr.dataset.i);
@@ -134,26 +134,26 @@ async function verDocumento(id) {
     const motivo = await promptDlg('Anular documento', 'Motivo da anulação'); if (motivo === null) return false;
     await POST(`documentos/${d.id}/anular`, { motivo }); toast('Documento anulado'); render();
   } });
-  if (d.estado === 'emitido' && d.tipo === 'FT') buttons.push({ label: '💶 Receber', onClick: () => emitirRecibo({ paciente: { id: d.paciente_id, nome: d.paciente_nome }, documento: d, onDone: () => render() }) });
+  if (d.estado === 'emitido' && d.tipo === 'FT') buttons.push({ label: 'Receber', onClick: () => emitirRecibo({ paciente: { id: d.paciente_id, nome: d.paciente_nome }, documento: d, onDone: () => render() }) });
   if (d.estado === 'emitido' && ['FT', 'FR'].includes(d.tipo)) buttons.push({ label: 'Nota de crédito', onClick: async () => {
     const p = await GET('t/pacientes/' + d.paciente_id);
     emitirDocumento({ paciente: p, tipo: 'NC', ref: d, linhas: d.linhas.map(l => ({ ...l, tratamento_id: l.tratamento_id })), onDone: () => render() });
   } });
-  buttons.push({ label: '👤 Paciente', onClick: () => go(`#/paciente/${d.paciente_id}/cc`) });
-  buttons.push({ label: '🖨 Imprimir', cls: 'primary', onClick: () => { printHTML(docHTML(d)); return false; } });
+  buttons.push({ label: 'Paciente', onClick: () => go(`#/paciente/${d.paciente_id}/cc`) });
+  buttons.push({ label: 'Imprimir', cls: 'primary', onClick: () => { printHTML(docHTML(d)); return false; } });
   modal({ title: `${d.tipo_nome} ${d.numero}`, size: 'lg', body: docHTML(d), buttons });
 }
 
 // ---------- conta corrente (ficha do paciente) ----------
 async function tabContaCorrente(el, p) {
   const cc = await GET(`pacientes/${p.id}/contacorrente`);
-  el.innerHTML = `<div class="grid g4">
-    <div class="card kpi"><div class="l">Faturado</div><div class="v">${eur(cc.faturado)}</div></div>
-    <div class="card kpi"><div class="l">Notas de crédito</div><div class="v">${eur(cc.creditos)}</div></div>
-    <div class="card kpi"><div class="l">Pago</div><div class="v ok">${eur(cc.pago)}</div></div>
-    <div class="card kpi"><div class="l">Saldo</div><div class="v ${cc.saldo > 0 ? 'danger' : ''}">${eur(cc.saldo)}</div></div></div>
-    <div class="card"><div class="row" style="margin-bottom:10px"><button class="primary" id="cc-fr">🧾 Novo documento</button><button id="cc-rc">💶 Receber pagamento</button>
-      <div class="spacer"></div><button id="cc-print">🖨 Extrato</button></div>
+  el.innerHTML = `<div class="facts">
+    <div class="fact"><div class="l">Faturado</div><div class="v">${eur(cc.faturado)}</div></div>
+    <div class="fact"><div class="l">Notas de crédito</div><div class="v">${eur(cc.creditos)}</div></div>
+    <div class="fact"><div class="l">Pago</div><div class="v ok">${eur(cc.pago)}</div></div>
+    <div class="fact"><div class="l">Saldo</div><div class="v ${cc.saldo > 0 ? 'danger' : ''}">${eur(cc.saldo)}</div></div></div>
+    <div class="card"><div class="row" style="margin-bottom:10px"><button class="primary" id="cc-fr">Novo documento</button><button id="cc-rc">Receber pagamento</button>
+      <div class="spacer"></div><button id="cc-print">Extrato</button></div>
     ${table(cc.movimentos, [
       { h: 'Data', f: m => fmtDate(m.data) }, { h: 'Documento', f: m => `<a href="#" data-doc="${m.documento_id}">${esc(m.numero)}</a>` },
       { h: 'Descrição', f: m => esc(m.descricao) + (m.anulado ? ' <span class="badge danger">anulado</span>' : '') },
@@ -172,7 +172,7 @@ async function tabContaCorrente(el, p) {
 // ---------- página de faturação ----------
 route('faturacao', async (view, [sub = 'documentos']) => {
   view.innerHTML = `<div class="page-head"><h1>Faturação</h1><div class="spacer"></div>
-    <button id="fx-rc">💶 Receber pagamento</button><button class="primary" id="fx-new">🧾 Novo documento</button></div>
+    <button id="fx-rc">Receber pagamento</button><button class="primary" id="fx-new">Novo documento</button></div>
     <div class="subnav">${[['documentos', 'Documentos'], ['devedores', 'Saldos de pacientes'], ['caixa', 'Fecho de caixa']].map(([k, l]) => `<button class="${k === sub ? 'active' : ''}" data-s="${k}">${l}</button>`).join('')}</div>
     <div id="fx-body"></div>`;
   $$('.subnav button', view).forEach(b => b.onclick = () => go('#/faturacao/' + b.dataset.s));
@@ -184,7 +184,7 @@ route('faturacao', async (view, [sub = 'documentos']) => {
     const cols = [{ h: 'N.º', f: r => esc(r.numero) }, { h: 'Paciente', f: r => `<b>${esc(r.nome)}</b>` }, { h: 'Telemóvel', f: r => esc(r.telemovel) },
       { h: 'Faturado', cls: 'right', f: r => eur(r.faturado) }, { h: 'Pago', cls: 'right', f: r => eur(r.pago) },
       { h: 'Saldo', cls: 'right', f: r => `<b class="${r.saldo > 0 ? 'danger' : 'ok'}">${eur(r.saldo)}</b>` }];
-    body.innerHTML = `<div class="card"><div class="row end" style="margin-bottom:8px"><span class="muted">Total em dívida: <b class="danger">${eur(rows.filter(r => r.saldo > 0).reduce((s, r) => s + r.saldo, 0))}</b></span><button class="sm" id="dv-csv">⇩ Exportar</button></div>
+    body.innerHTML = `<div class="card"><div class="row end" style="margin-bottom:8px"><span class="muted">Total em dívida: <b class="danger">${eur(rows.filter(r => r.saldo > 0).reduce((s, r) => s + r.saldo, 0))}</b></span><button class="sm" id="dv-csv">Exportar</button></div>
       ${table(rows, cols, { onClick: r => go(`#/paciente/${r.id}/cc`), empty: 'Nenhum paciente com saldo pendente' })}</div>`;
     $('#dv-csv').onclick = () => downloadCSV('saldos-pacientes', rows, cols);
     return;
@@ -193,10 +193,10 @@ route('faturacao', async (view, [sub = 'documentos']) => {
     const de = body.dataset.de || isoDate();
     const docs = await GET(`documentos?de=${de}&ate=${de}`);
     const st = await GET(`estatisticas?de=${de}&ate=${de}`);
-    body.innerHTML = `<div class="card"><div class="row">${fld('Dia', `<input type="date" id="cx-d" value="${de}">`)}<div class="spacer"></div><button id="cx-print">🖨 Imprimir fecho</button></div>
-      <div class="grid g3"><div class="card kpi"><div class="l">Faturado</div><div class="v">${eur(st.kpi.faturado)}</div></div>
-      <div class="card kpi"><div class="l">Recebido</div><div class="v ok">${eur(st.kpi.recebido)}</div></div>
-      <div class="card kpi"><div class="l">Documentos</div><div class="v">${docs.length}</div></div></div>
+    body.innerHTML = `<div class="card"><div class="row">${fld('Dia', `<input type="date" id="cx-d" value="${de}">`)}<div class="spacer"></div><button id="cx-print">Imprimir fecho</button></div>
+      <div class="facts"><div class="fact"><div class="l">Faturado</div><div class="v">${eur(st.kpi.faturado)}</div></div>
+      <div class="fact"><div class="l">Recebido</div><div class="v ok">${eur(st.kpi.recebido)}</div></div>
+      <div class="fact"><div class="l">Documentos</div><div class="v">${docs.length}</div></div></div>
       <h3>Recebimentos por método</h3>${hbars(st.recebMetodo, { label: 'metodo', value: 'total', fmt: eur })}
       <h3 style="margin-top:16px">Documentos do dia</h3>${docsTable(docs)}</div>`;
     $('#cx-d').onchange = e => { body.dataset.de = e.target.value; render(); };
@@ -209,7 +209,7 @@ route('faturacao', async (view, [sub = 'documentos']) => {
   }
   const f = JSON.parse(body.dataset.f || 'null') || { de: isoDate().slice(0, 8) + '01', ate: isoDate(), tipo: '' };
   body.innerHTML = `<div class="card"><div class="row" style="margin-bottom:10px">${fld('De', `<input type="date" id="fx-de" value="${f.de}">`)}${fld('Até', `<input type="date" id="fx-ate" value="${f.ate}">`)}
-    ${fld('Tipo', `<select id="fx-tipo">${optsArr([['', 'Todos'], ...Object.entries(TIPO_NOME)], f.tipo)}</select>`)}<div class="spacer"></div><button id="fx-csv">⇩ Exportar</button></div><div id="fx-list"></div></div>`;
+    ${fld('Tipo', `<select id="fx-tipo">${optsArr([['', 'Todos'], ...Object.entries(TIPO_NOME)], f.tipo)}</select>`)}<div class="spacer"></div><button id="fx-csv">Exportar</button></div><div id="fx-list"></div></div>`;
   const load = async () => {
     const q = { de: $('#fx-de').value, ate: $('#fx-ate').value, tipo: $('#fx-tipo').value };
     body.dataset.f = JSON.stringify(q);
@@ -246,7 +246,7 @@ const ORC_COLS = [
 route('orcamentos', async (view) => {
   view.innerHTML = `<div class="page-head"><h1>Orçamentos</h1><div class="spacer"></div>
     <select id="or-est" style="width:auto">${optsArr([['', 'Todos'], ['aberto', 'Em aberto'], ['aceite', 'Aceites'], ['recusado', 'Recusados']], 'aberto')}</select>
-    <button class="primary" id="or-new">＋ Novo orçamento</button></div><div class="card" id="or-list"></div>`;
+    <button class="primary" id="or-new">Novo orçamento</button></div><div class="card" id="or-list"></div>`;
   const load = async () => {
     const rows = await GET('orcamentos?estado=' + $('#or-est').value);
     $('#or-list').innerHTML = table(rows, ORC_COLS, { onClick: o => verOrcamento(o.id), empty: 'Sem orçamentos' });
@@ -257,7 +257,7 @@ route('orcamentos', async (view) => {
 });
 async function tabOrcamentosPac(el, p) {
   const rows = await GET('orcamentos?paciente_id=' + p.id);
-  el.innerHTML = `<div class="card"><div class="row end" style="margin-bottom:10px"><button class="primary" id="op-new">＋ Novo orçamento</button></div>${table(rows, ORC_COLS, { onClick: o => verOrcamento(o.id), empty: 'Sem orçamentos' })}</div>`;
+  el.innerHTML = `<div class="card"><div class="row end" style="margin-bottom:10px"><button class="primary" id="op-new">Novo orçamento</button></div>${table(rows, ORC_COLS, { onClick: o => verOrcamento(o.id), empty: 'Sem orçamentos' })}</div>`;
   $('#op-new').onclick = () => editOrcamento(null, { paciente: p });
 }
 async function editOrcamento(id, { paciente, linhas } = {}) {
@@ -291,17 +291,17 @@ function orcHTML(o) {
 }
 async function verOrcamento(id) {
   const o = await GET('orcamentos/' + id);
-  const buttons = [{ label: '🗑 Eliminar', cls: 'danger', left: true, onClick: async () => {
+  const buttons = [{ label: 'Eliminar', cls: 'danger', left: true, onClick: async () => {
     if (!await confirmDlg('Eliminar este orçamento?', 'Eliminar', true)) return false;
     await DEL('orcamentos/' + id); toast('Orçamento eliminado'); render();
   } }];
   if (o.estado === 'aberto') {
-    buttons.push({ label: '✎ Editar', onClick: () => editOrcamento(id) });
+    buttons.push({ label: 'Editar', onClick: () => editOrcamento(id) });
     buttons.push({ label: 'Recusar', onClick: async () => { await POST(`orcamentos/${id}/recusar`); toast('Orçamento recusado'); render(); } });
-    buttons.push({ label: '✔ Aceitar (criar plano)', onClick: async () => {
+    buttons.push({ label: 'Aceitar (criar plano)', onClick: async () => {
       await POST(`orcamentos/${id}/aceitar`); toast('Orçamento aceite: tratamentos adicionados ao plano'); go(`#/paciente/${o.paciente_id}/tratamentos`);
     } });
   }
-  buttons.push({ label: '🖨 Imprimir', cls: 'primary', onClick: () => { printHTML(orcHTML(o)); return false; } });
+  buttons.push({ label: 'Imprimir', cls: 'primary', onClick: () => { printHTML(orcHTML(o)); return false; } });
   modal({ title: `Orçamento ${o.numero} — ${ORC_EST[o.estado]?.[0] || o.estado}`, size: 'lg', body: orcHTML(o), buttons });
 }

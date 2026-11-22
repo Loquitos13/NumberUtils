@@ -238,7 +238,7 @@ function seed() {
   if (get('SELECT COUNT(*) c FROM users').c > 0) return;
   tx(() => {
     const cfg = {
-      clinica_nome: 'Clínica Dentária Sorriso',
+      clinica_nome: 'OralSaúde — Clínica de Saúde Oral',
       clinica_morada: 'Rua Exemplo, 100',
       clinica_cp: '4400-000 Vila Nova de Gaia',
       clinica_nif: '500000000',
