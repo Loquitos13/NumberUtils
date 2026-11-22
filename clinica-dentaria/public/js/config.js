@@ -3,7 +3,7 @@
 const CFG_SECTIONS = [
   ['clinica', 'Empresa / clínica'], ['agenda', 'Agenda e feriados'], ['ivas', 'Tabela de IVA'], ['medicos', 'Médicos'], ['servicos', 'Tratamentos e preços'], ['especialidades', 'Especialidades'],
   ['gabinetes', 'Gabinetes'], ['estados', 'Estados das consultas'], ['razoes', 'Razões 1.ª visita'], ['entidades', 'Entidades / seguros'],
-  ['laboratorios', 'Laboratórios'], ['armazens', 'Armazéns'], ['sms', 'Modelos de SMS'], ['utilizadores', 'Utilizadores'], ['registos', 'Registos'], ['backup', 'Cópia de segurança'],
+  ['laboratorios', 'Laboratórios'], ['armazens', 'Armazéns'], ['mensagens', 'E-mail e SMS'], ['sms', 'Modelos de mensagem'], ['utilizadores', 'Utilizadores'], ['registos', 'Registos'], ['backup', 'Cópia de segurança'],
 ];
 
 // definição genérica: k = coluna, t = tipo
@@ -14,7 +14,7 @@ const CRUD_DEFS = {
   servicos: { table: 'servicos', title: 'Tratamento', cols: [{ k: 'codigo', h: 'Código' }, { k: 'nome', h: 'Nome', req: 1, span: 3 },
     { k: 'especialidade_id', h: 'Especialidade', t: 'sel', list: () => L().especialidades, span: 2 }, { k: 'preco', h: 'Preço €', t: 'num' }, { k: 'iva', h: 'IVA %', t: 'num' },
     { k: 'iva_id', h: 'IVA', t: 'sel', list: () => L().ivas, lab: ivaLabel }, { k: 'duracao_min', h: 'Duração (min)', t: 'num' },
-    { k: 'simbolo', h: 'Símbolo no odontograma', t: 'opt', opts: () => SIMBOLOS, span: 2 }, { k: 'por_dente', h: 'Por dente', t: 'bool' }, { k: 'ativo', h: 'Ativo', t: 'bool' }] },
+    { k: 'simbolo', h: 'Símbolo no odontograma', t: 'opt', opts: () => SIMBOLOS, span: 2 }, { k: 'atalho', h: 'Atalho no odontograma', t: 'bool' }, { k: 'por_dente', h: 'Por dente', t: 'bool' }, { k: 'ativo', h: 'Ativo', t: 'bool' }] },
   especialidades: { table: 'especialidades', title: 'Especialidade', cols: [{ k: 'nome', h: 'Nome', req: 1, span: 2 }, { k: 'abreviatura', h: 'Abreviatura' }, { k: 'ativo', h: 'Ativo', t: 'bool' }] },
   gabinetes: { table: 'gabinetes', title: 'Gabinete', cols: [{ k: 'nome', h: 'Nome', req: 1, span: 3 }, { k: 'ativo', h: 'Ativo', t: 'bool' }] },
   estados: { table: 'estados', title: 'Estado', cols: [{ k: 'nome', h: 'Nome', req: 1, span: 2 }, { k: 'cor', h: 'Cor', t: 'color' },
@@ -29,8 +29,9 @@ const CRUD_DEFS = {
     { k: 'isencao_cod', h: 'Cód. isenção', t: 'opt', opts: () => [['', '—'], ...L().isencoes.map(([c, m]) => [c, `${c} — ${m}`])] },
     { k: 'isencao_motivo', h: 'Artigo / motivo de isenção', span: 3, help: 'Obrigatório nas taxas de 0%. Aparece impresso nos documentos.' }, { k: 'ativo', h: 'Ativo', t: 'bool' }] },
   armazens: { table: 'armazens', title: 'Armazém', cols: [{ k: 'nome', h: 'Nome', req: 1, span: 3 }, { k: 'ativo', h: 'Ativo', t: 'bool' }] },
-  sms: { table: 'sms_modelos', title: 'Modelo de SMS', cols: [{ k: 'nome', h: 'Nome', req: 1, span: 3 }, { k: 'ativo', h: 'Ativo', t: 'bool' },
-    { k: 'texto', h: 'Texto', t: 'area', span: 4, help: 'Variáveis: {nome} {primeiro_nome} {data} {hora} {medico} {servico} {clinica} {telefone_clinica}' }] },
+  sms: { table: 'sms_modelos', title: 'Modelo de mensagem', cols: [{ k: 'nome', h: 'Nome', req: 1, span: 3 }, { k: 'ativo', h: 'Ativo', t: 'bool' },
+    { k: 'assunto', h: 'Assunto (e-mail)', span: 4 },
+    { k: 'texto', h: 'Texto (SMS e corpo do e-mail)', t: 'area', span: 4, help: 'Variáveis: {nome} {primeiro_nome} {data} {dia_semana} {hora} {medico} {servico} {gabinete} {clinica} {telefone_clinica} {email_clinica} {morada_clinica}' }] },
 };
 
 function cellView(c, r) {
@@ -142,6 +143,45 @@ route('config', async (view, [sec = 'clinica']) => {
     };
     crudSection($('#cf-fer'), { table: 'feriados', title: 'Feriado', cols: [{ k: 'nome', h: 'Nome', req: 1, span: 2 },
       { k: 'data', h: 'Data (MM-DD se fixo, AAAA-MM-DD se pontual)', req: 1, span: 2 }, { k: 'fixo', h: 'Repete todos os anos', t: 'bool' }, { k: 'ativo', h: 'Ativo', t: 'bool' }] });
+    return;
+  }
+  if (sec === 'mensagens') {
+    const mSel = (k) => sel(k, opts(ativos(L().sms_modelos), c[k]));
+    const canais = (k) => `${chk(k + '_sms', (c[k] || '').includes('sms'), 'SMS')}${chk(k + '_email', (c[k] || '').includes('email'), 'E-mail')}`;
+    body.innerHTML = `<form class="form-grid" id="cf-msg" onsubmit="return false">
+      <div class="s4"><h3>E-mail (SMTP)</h3><p class="muted small" style="margin-top:0">Use os dados da conta de e-mail da clínica (ex.: Microsoft 365: smtp.office365.com, porta 587, STARTTLS; Gmail: smtp.gmail.com, porta 587, com palavra-passe de aplicação).</p></div>
+      ${fld('Servidor SMTP', inp('smtp_host', c.smtp_host, 'placeholder="smtp.exemplo.pt"'), 's2')}${fld('Porta', inp('smtp_porta', c.smtp_porta, 'type="number"'))}
+      ${fld('Segurança', sel('smtp_seguranca', optsArr([['starttls', 'STARTTLS (587)'], ['ssl', 'SSL/TLS (465)'], ['nenhuma', 'Sem cifra (não recomendado)']], c.smtp_seguranca)))}
+      ${fld('Utilizador', inp('smtp_utilizador', c.smtp_utilizador, 'autocomplete="off"'))}${fld('Palavra-passe', inp('smtp_password', c.smtp_password, 'type="password" autocomplete="new-password"'))}
+      ${fld('E-mail do remetente', inp('smtp_de', c.smtp_de, 'type="email"'))}${fld('Nome do remetente', inp('smtp_nome', c.smtp_nome || c.clinica_nome))}
+      <div class="s4"><h3 style="margin-top:6px">SMS</h3></div>
+      ${fld('Fornecedor', sel('sms_fornecedor', optsArr([['', 'Nenhum (preparar e enviar pelo telemóvel)'], ['twilio', 'Twilio'], ['http', 'Outro fornecedor (API HTTP)']], c.sms_fornecedor)), 's2')}
+      ${fld('Remetente (nome ou número)', inp('sms_remetente', c.sms_remetente, 'maxlength="11"'))}${fld('Indicativo por omissão', inp('sms_indicativo', c.sms_indicativo))}
+      ${fld('Conta (Account SID)', inp('sms_conta', c.sms_conta), 's2 sms-twilio')}${fld('Token / chave da API', inp('sms_token', c.sms_token, 'type="password" autocomplete="new-password"'), 's2 sms-any')}
+      ${fld('URL da API (use {para} {numero} {texto} {remetente} {token})', inp('sms_url', c.sms_url, 'placeholder="https://api.fornecedor.pt/sms?to={numero}&text={texto}"'), 's4 sms-http')}
+      ${fld('Método', sel('sms_metodo', optsArr(['POST', 'GET'], c.sms_metodo)), 'sms-http')}${fld('Cabeçalho de autenticação', inp('sms_auth_header', c.sms_auth_header, 'placeholder="Authorization"'), 'sms-http')}
+      ${fld('Prefixo do token', inp('sms_auth_prefixo', c.sms_auth_prefixo, 'placeholder="Bearer"'), 'sms-http')}<div class="sms-http"></div>
+      ${fld('Corpo do pedido (JSON ou formulário)', txt('sms_corpo', c.sms_corpo, 'placeholder=\'{"to":"{para}","from":"{remetente}","text":"{texto}"}\''), 's4 sms-http')}
+      <div class="s4"><h3 style="margin-top:6px">Envios automáticos</h3></div>
+      <div class="s2">${chk('confirmacao_auto', c.confirmacao_auto === '1', 'Enviar confirmação quando se cria uma marcação')}<div style="margin:6px 0 0 22px">${canais('confirmacao_canais')}</div></div>
+      ${fld('Modelo da confirmação', mSel('confirmacao_modelo_id'), 's2')}
+      <div class="s2">${chk('lembrete_auto', c.lembrete_auto === '1', 'Enviar lembrete antes da consulta')}<div style="margin:6px 0 0 22px">${canais('lembrete_canais')}</div></div>
+      ${fld('Horas de antecedência', inp('lembrete_horas', c.lembrete_horas || 24, 'type="number" min="1"'))}${fld('Modelo do lembrete', mSel('lembrete_modelo_id'))}
+      <div class="s4 small muted">Os lembretes são verificados a cada 5 minutos enquanto o servidor estiver ligado. Só se enviam a pacientes com consentimento de SMS/e-mail na ficha.</div>
+      <div class="s4 row" style="margin-top:8px"><button type="button" id="msg-test-email">Testar e-mail</button><button type="button" id="msg-test-sms">Testar SMS</button><div class="spacer"></div><button class="primary" id="msg-save">Guardar</button></div>
+    </form>`;
+    const form = $('#cf-msg');
+    const vis = () => { const v = form.sms_fornecedor.value; $$('.sms-twilio', form).forEach(x => x.classList.toggle('hidden', v !== 'twilio')); $$('.sms-http', form).forEach(x => x.classList.toggle('hidden', v !== 'http')); $$('.sms-any', form).forEach(x => x.classList.toggle('hidden', !v)); };
+    form.sms_fornecedor.onchange = vis; vis();
+    const guardar = async () => {
+      const f = readForm(form);
+      for (const k of ['confirmacao_canais', 'lembrete_canais']) { f[k] = [f[k + '_sms'] && 'sms', f[k + '_email'] && 'email'].filter(Boolean).join(','); delete f[k + '_sms']; delete f[k + '_email']; }
+      f.confirmacao_auto = String(f.confirmacao_auto); f.lembrete_auto = String(f.lembrete_auto);
+      await PUT('config', f); await refreshLookups();
+    };
+    $('#msg-save').onclick = async () => { await act(guardar, 'Configuração guardada'); };
+    $('#msg-test-email').onclick = async () => { await act(guardar); const para = await promptDlg('Testar e-mail', 'Enviar teste para', c.smtp_de || ''); if (para) await act(() => POST('sms/teste', { canal: 'email', para }), 'E-mail de teste enviado'); };
+    $('#msg-test-sms').onclick = async () => { await act(guardar); const para = await promptDlg('Testar SMS', 'Enviar teste para o número', ''); if (para) await act(() => POST('sms/teste', { canal: 'sms', para }), 'SMS de teste enviado'); };
     return;
   }
   if (sec === 'utilizadores') {

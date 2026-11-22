@@ -235,7 +235,7 @@ function bindEstadoRapido(root, after = drawAgenda) {
 }
 
 // ---------- modal de marcação ----------
-async function openMarcacao({ id, date, hora, medico_id, gabinete_id, paciente, duracao, servico_id } = {}) {
+async function openMarcacao({ id, date, hora, medico_id, gabinete_id, paciente, duracao, servico_id, notas, onSaved } = {}) {
   const lk = L(); const cfg = lk.config;
   let m = id ? await GET('marcacoes/' + id) : null;
   const durDefault = duracao || byId(lk.servicos, servico_id)?.duracao_min || 30;
@@ -254,7 +254,7 @@ async function openMarcacao({ id, date, hora, medico_id, gabinete_id, paciente, 
     ${fld('Duração (min)', inp('duracao', dur, 'type="number" min="5" step="5"'))}
     ${fld('Estado', sel('estado_id', opts(estados, m?.estado_id ?? estados[0]?.id)))}
     <div class="s4">${chk('primeira', m?.primeira, 'Primeira consulta')}</div>
-    ${fld('Notas', txt('notas', m?.notas), 's4')}
+    ${fld('Notas', txt('notas', m?.notas ?? notas), 's4')}
     <div class="s4 small muted" id="mk-info"></div>
   </form>`;
   const buttons = [];
@@ -264,7 +264,7 @@ async function openMarcacao({ id, date, hora, medico_id, gabinete_id, paciente, 
   } });
   if (m) buttons.push({ label: 'Abrir consulta', onClick: () => go('#/consulta/' + m.id) });
   if (m) buttons.push({ label: 'Ficha', onClick: () => go('#/paciente/' + m.paciente_id) });
-  if (m) buttons.push({ label: 'SMS', onClick: async () => { await smsMarcacoes([m.id]); return false; } });
+  if (m) buttons.push({ label: 'Avisar paciente', onClick: async () => { await smsMarcacoes([m.id], `Avisar ${m.paciente_nome}`, 'Confirmação de marcação'); return false; } });
   buttons.push({ label: 'Cancelar' });
   buttons.push({ label: 'Guardar', cls: 'primary', onClick: async c => {
     const f = readForm($('form', c.body));
@@ -275,13 +275,15 @@ async function openMarcacao({ id, date, hora, medico_id, gabinete_id, paciente, 
       servico_id: f.servico_id ? Number(f.servico_id) : null, estado_id: Number(f.estado_id), notas: f.notas, primeira: f.primeira,
       inicio: `${f.data}T${f.hora}`, fim: `${f.data}T${minToHHMM(e)}` };
     const save = forcar => m ? PUT('marcacoes/' + m.id, { ...payload, forcar }) : POST('marcacoes', { ...payload, forcar });
-    try { await save(false); }
+    let gravada;
+    try { gravada = await save(false); }
     catch (err) {
       if (err.status !== 409) throw err;
       if (!await confirmDlg(err.message + ' Pretende gravar mesmo assim?', 'Gravar mesmo assim')) return false;
-      await save(true);
+      gravada = await save(true);
     }
-    toast('Marcação guardada'); refreshCurrent();
+    toast('Marcação guardada');
+    if (onSaved) await onSaved(gravada); else refreshCurrent();
   } });
   modal({ title: m ? `Marcação — ${m.paciente_nome}` : 'Nova marcação', size: 'lg', body, buttons, onOpen: c => {
     const form = $('form', c.body);
@@ -404,22 +406,40 @@ async function lembretesDia() {
   const dia = addDays(AG.date, AG.date === isoDate() ? 1 : 0);
   const marc = (await GET(`agenda?de=${dia}&ate=${dia}`)).filter(m => !['INATIVAS', 'FALTAS', 'REALIZADAS'].includes(m.estado_categoria));
   if (!marc.length) return toast('Sem marcações ativas em ' + fmtDate(dia));
-  await smsMarcacoes(marc.map(m => m.id), `Lembretes para ${fmtDate(dia)} (${marc.length})`);
+  await smsMarcacoes(marc.map(m => m.id), `Lembretes para ${fmtDate(dia)} (${marc.length})`, 'Lembrete de consulta');
 }
-async function smsMarcacoes(ids, titulo = 'Enviar SMS') {
+async function smsMarcacoes(ids, titulo = 'Avisar paciente', modeloNome) { return enviarAviso({ marcacao_ids: ids }, titulo, modeloNome); }
+
+// Janela única de mensagens (SMS e/ou e-mail) para marcações ou pacientes
+async function enviarAviso(alvo, titulo = 'Enviar mensagem', modeloNome) {
   const modelos = ativos(L().sms_modelos);
-  modal({ title: titulo, size: 'lg', body: `${fld('Modelo', sel('modelo_id', opts(modelos, modelos[0]?.id)))}<div id="sms-res"></div>`,
-    buttons: [{ label: 'Fechar' }, { label: 'Preparar mensagens', cls: 'primary', onClick: async c => {
-      const r = await POST('sms/preparar', { modelo_id: Number($('select', c.body).value), marcacao_ids: ids });
-      $('#sms-res', c.body).innerHTML = smsResultado(r); bindSmsResultado(c.body, r);
-      return false;
-    } }] });
+  const est = await GET('sms/estado').catch(() => ({ email: false, sms: false }));
+  const mdef = modelos.find(m => m.nome === modeloNome) || modelos[0];
+  modal({ title: titulo, size: 'lg', body: `<form class="form-grid" onsubmit="return false">
+      ${fld('Modelo', sel('modelo_id', opts(modelos, mdef?.id)), 's2')}
+      <div class="s2"><label class="f">Enviar por</label><div style="padding-top:5px">${chk('c_sms', 1, 'SMS')}${chk('c_email', 0, 'E-mail')}</div></div>
+      <div class="s4 small muted">${est.sms ? 'SMS: envio automático ativo.' : 'SMS: sem fornecedor configurado — as mensagens ficam preparadas para copiar ou abrir no telemóvel.'}
+        ${est.email ? ' E-mail: envio ativo.' : ' E-mail: não configurado (Configuração → E-mail e SMS).'}</div>
+    </form><div id="sms-res"></div>`,
+  buttons: [{ label: 'Fechar' }, { label: 'Pré-visualizar', onClick: c => go_(c, false) }, { label: 'Enviar', cls: 'primary', onClick: c => go_(c, true) }] });
+  async function go_(c, enviar) {
+    const f = readForm($('form', c.body));
+    const canais = [f.c_sms && 'sms', f.c_email && 'email'].filter(Boolean);
+    if (!canais.length) throw new Error('Escolha SMS e/ou e-mail');
+    if (enviar && !await confirmDlg(`Enviar ${canais.join(' e ').replace('email', 'e-mail').toUpperCase()} para ${(alvo.marcacao_ids || alvo.paciente_ids || []).length} destinatário(s)?`, 'Enviar')) return false;
+    const r = await POST(enviar ? 'sms/enviar' : 'sms/preparar', { ...alvo, modelo_id: Number(f.modelo_id), canais });
+    $('#sms-res', c.body).innerHTML = smsResultado(r); bindSmsResultado(c.body);
+    if (enviar) { const ok = r.filter(x => x.estado === 'enviado').length; toast(`${ok} enviada(s)${r.length - ok ? ` · ${r.length - ok} por enviar` : ''}`); }
+    return false;
+  }
 }
+const EST_MSG = { enviado: 'st-pago', preparado: 'st-real', erro: 'st-nec', 'sem consentimento': 'st-orc', 'sem número': 'st-orc', 'sem e-mail': 'st-orc' };
 function smsResultado(r) {
-  return `<p class="muted small">As mensagens ficam registadas no histórico. Sem gateway de SMS configurado, use "Copiar" ou envie pelo telemóvel da clínica (link sms:).</p>` +
-    table(r, [{ h: 'Paciente', f: x => esc(x.nome) }, { h: 'Telemóvel', f: x => esc(x.telefone) }, { h: 'Mensagem', f: x => `<span class="small">${esc(x.texto)}</span>` },
-      { h: 'Estado', f: x => `<span class="badge ${x.estado === 'preparado' ? 'info' : 'warn'}">${esc(x.estado)}</span>` },
-      { h: '', f: (x) => x.telefone ? `<span class="nowrap"><button class="sm" data-copy="${esc(x.texto)}">Copiar</button> <a class="btn sm" href="sms:${esc(x.telefone)}?body=${encodeURIComponent(x.texto)}">Abrir</a></span>` : '' }]);
+  return table(r, [{ h: 'Paciente', f: x => esc(x.nome) }, { h: 'Canal', f: x => x.canal === 'email' ? 'E-mail' : 'SMS' }, { h: 'Destino', f: x => `<span class="num">${esc(x.destino || '')}</span>` },
+    { h: 'Mensagem', f: x => `<span class="small">${x.canal === 'email' ? `<b>${esc(x.assunto)}</b><br>` : ''}${esc(x.texto)}</span>` },
+    { h: 'Estado', f: x => `<span class="st ${EST_MSG[x.estado] || ''}">${esc(x.estado)}</span>${x.erro ? `<div class="small danger">${esc(x.erro)}</div>` : ''}` },
+    { h: '', f: x => x.estado === 'preparado' && x.canal === 'sms' && x.destino ? `<span class="nowrap"><button class="sm" data-copy="${esc(x.texto)}">Copiar</button> <a class="btn sm" href="sms:${esc(x.destino)}?body=${encodeURIComponent(x.texto)}">Abrir</a></span>`
+      : x.estado === 'preparado' && x.canal === 'email' && x.destino ? `<a class="btn sm" href="mailto:${esc(x.destino)}?subject=${encodeURIComponent(x.assunto)}&body=${encodeURIComponent(x.texto)}">Abrir</a>` : '' }]);
 }
 function bindSmsResultado(root) { $$('[data-copy]', root).forEach(b => b.onclick = () => { navigator.clipboard?.writeText(b.dataset.copy); toast('Copiado'); }); }
 

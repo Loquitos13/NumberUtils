@@ -12,7 +12,7 @@ function estadoTrat(t) {
   if (t.documento_id) return (t.documento_pago || 0) >= (t.documento_total || 0) - 0.005 ? { k: 'pago', l: 'Pago', d: t.documento_numero } : { k: 'fat', l: 'Por pagar', d: t.documento_numero };
   if (t.estado === 'realizado') return { k: 'real', l: 'Feito', d: 'por faturar' };
   if (t.orcamento_id && t.orcamento_estado !== 'recusado') return { k: 'orc', l: 'Orçamentado', d: t.orcamento_numero };
-  return { k: 'nec', l: 'Necessário', d: '' };
+  return { k: 'nec', l: 'Necessário', d: t.marcacao_inicio && t.marcacao_inicio >= isoDate() ? 'agendado ' + fmtDT(t.marcacao_inicio) : '' };
 }
 function estadoChip(t) { const e = estadoTrat(t); return `<span class="st st-${e.k}">${e.l}</span>${e.d ? ` <span class="muted small num">${esc(e.d)}</span>` : ''}`; }
 const AVISO_CERT = 'Documento processado por programa não certificado pela AT. Para efeitos fiscais utilize software de faturação certificado.';
@@ -174,6 +174,13 @@ async function verDocumento(id) {
   if (d.tipo === 'PF' && d.estado === 'emitido') buttons.push({ label: 'Converter em fatura-recibo', onClick: async () => {
     const p = await GET('t/pacientes/' + d.paciente_id);
     emitirDocumento({ paciente: p, tipo: 'FR', linhas: d.linhas.map(l => ({ servico_id: l.servico_id, tratamento_id: l.tratamento_id, descricao: l.descricao, dente: l.dente, qtd: l.qtd, preco: l.preco, desconto_pct: l.desconto_pct, iva: l.iva, iva_id: l.iva_id })), onDone: () => render() });
+  } });
+  if (d.estado === 'emitido') buttons.push({ label: 'Enviar por e-mail', onClick: async () => {
+    const p = await GET('t/pacientes/' + d.paciente_id);
+    const para = await promptDlg(`Enviar ${d.tipo_nome} ${d.numero}`, 'E-mail do destinatário', p.email || '');
+    if (!para) return false;
+    await act(() => POST(`documentos/${d.id}/email`, { para, html: docHTML(d), mensagem: `Exmo(a). Sr(a). ${p.nome},\n\nSegue em anexo o documento ${d.numero}.\n\nCom os melhores cumprimentos,\n${L().config.clinica_nome || ''}` }), 'Documento enviado para ' + para);
+    return false;
   } });
   buttons.push({ label: 'Paciente', onClick: () => go(`#/paciente/${d.paciente_id}/cc`) });
   buttons.push({ label: 'Imprimir', cls: 'primary', onClick: () => { printHTML(docHTML(d)); return false; } });

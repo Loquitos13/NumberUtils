@@ -180,6 +180,12 @@ const MIGRACOES = [
   'ALTER TABLE pacientes ADD COLUMN alterado_em TEXT',
   'ALTER TABLE notas_clinicas ADD COLUMN marcacao_id INTEGER',
   'ALTER TABLE servicos ADD COLUMN simbolo TEXT',
+  'ALTER TABLE servicos ADD COLUMN atalho INTEGER DEFAULT 0',
+  'ALTER TABLE sms_modelos ADD COLUMN assunto TEXT',
+  'ALTER TABLE sms_historico ADD COLUMN canal TEXT DEFAULT \'sms\'',
+  'ALTER TABLE sms_historico ADD COLUMN erro TEXT',
+  'ALTER TABLE sms_historico ADD COLUMN marcacao_id INTEGER',
+  'ALTER TABLE marcacoes ADD COLUMN lembrete_em TEXT',
 ];
 for (const sql of MIGRACOES) {
   try { db.exec(sql); } catch { /* coluna já existe */ }
@@ -432,6 +438,31 @@ function seedDemo() {
 }
 
 seed();
+// modelos de mensagem base (também em bases de dados antigas)
+{
+  const base = [
+    ['Confirmação de marcação', 'Marcação confirmada — {clinica}', 'Olá {primeiro_nome}, a sua consulta na {clinica} ficou marcada para {dia_semana}, {data} às {hora}, com {medico}. Se precisar de alterar, contacte {telefone_clinica}.'],
+    ['Lembrete de consulta', 'Lembrete: consulta {data} às {hora}', null],
+    ['Aniversário', 'Feliz aniversário!', null], ['Falta à consulta', 'Faltou à sua consulta', null],
+    ['Prótese pronta', 'O seu trabalho de prótese está pronto', null], ['Revisão anual', 'Está na altura da sua revisão', null],
+  ];
+  for (const [nome, assunto, texto] of base) {
+    const ex = get('SELECT id, assunto FROM sms_modelos WHERE nome=?', nome);
+    if (!ex && texto) run('INSERT INTO sms_modelos (nome, assunto, texto) VALUES (?,?,?)', nome, assunto, texto);
+    else if (ex && !ex.assunto) run('UPDATE sms_modelos SET assunto=? WHERE id=?', assunto, ex.id);
+  }
+  const defaults = { lembrete_auto: '0', lembrete_horas: '24', lembrete_canais: 'sms', confirmacao_auto: '0', confirmacao_canais: 'sms', smtp_seguranca: 'starttls', smtp_porta: '587', sms_indicativo: '351', sms_metodo: 'POST' };
+  for (const [k, v] of Object.entries(defaults)) run('INSERT OR IGNORE INTO config VALUES (?,?)', k, v);
+  const lem = get("SELECT id FROM sms_modelos WHERE nome='Lembrete de consulta'"), conf = get("SELECT id FROM sms_modelos WHERE nome='Confirmação de marcação'");
+  if (lem) run("INSERT OR IGNORE INTO config VALUES ('lembrete_modelo_id', ?)", String(lem.id));
+  if (conf) run("INSERT OR IGNORE INTO config VALUES ('confirmacao_modelo_id', ?)", String(conf.id));
+}
+// atalhos iniciais no odontograma (só quando ainda não há nenhum definido)
+if (!get("SELECT valor FROM config WHERE chave='atalhos_iniciais'")) {
+  run("UPDATE servicos SET atalho=1 WHERE codigo IN ('C001','H001','R001','R002','E001','X001','D002','P001')");
+  run("INSERT INTO config VALUES ('atalhos_iniciais','1')");
+}
+
 // tratamentos sem taxa de IVA definida ficam com a taxa isenta (art. 9.º CIVA)
 run("UPDATE servicos SET iva_id=(SELECT id FROM ivas WHERE codigo='ISE' AND ativo=1 ORDER BY id LIMIT 1) WHERE iva_id IS NULL AND COALESCE(iva,0)=0");
 

@@ -6,6 +6,7 @@ const path = require('node:path');
 const os = require('node:os');
 const crypto = require('node:crypto');
 const D = require('./db');
+const COM = require('./comunicacao');
 const { all, get, run, tx } = D;
 
 const PORT = Number(process.env.PORT) || 3000;
@@ -64,11 +65,11 @@ const TABLES = {
   razoes_visita: { cols: ['abreviatura', 'descricao', 'ativo'], admin: true, order: 'abreviatura' },
   feriados: { cols: ['nome', 'data', 'fixo', 'ativo'], admin: true, order: 'data' },
   entidades: { cols: ['nome', 'nif', 'desconto_pct', 'ativo'], admin: true, order: 'nome' },
-  servicos: { cols: ['codigo', 'nome', 'especialidade_id', 'preco', 'iva', 'iva_id', 'simbolo', 'duracao_min', 'por_dente', 'ativo'], admin: true, order: 'codigo, nome' },
+  servicos: { cols: ['codigo', 'nome', 'especialidade_id', 'preco', 'iva', 'iva_id', 'simbolo', 'atalho', 'duracao_min', 'por_dente', 'ativo'], admin: true, order: 'codigo, nome' },
   laboratorios: { cols: ['nome', 'contacto', 'telefone', 'email', 'ativo'], admin: false, order: 'nome' },
   armazens: { cols: ['nome', 'ativo'], admin: true, order: 'id' },
   produtos: { cols: ['codigo', 'nome', 'familia', 'unidade', 'stock_min', 'stock_ideal', 'preco_custo', 'fornecedor', 'ativo'], admin: false, order: 'nome' },
-  sms_modelos: { cols: ['nome', 'texto', 'ativo'], admin: true, order: 'nome' },
+  sms_modelos: { cols: ['nome', 'assunto', 'texto', 'ativo'], admin: true, order: 'nome' },
   pacientes: { cols: ['numero', 'nome', 'data_nasc', 'genero', 'nif', 'sns', 'cc', 'telefone', 'telemovel', 'email', 'morada', 'cod_postal', 'localidade', 'profissao', 'razao_visita_id', 'medico_id', 'entidade_id', 'num_beneficiario', 'notas', 'rgpd_consent', 'rgpd_data', 'sms_ok', 'email_ok', 'ativo',
     'titulo', 'id_externo', 'nacionalidade', 'idioma', 'contacto_emergencia', 'telefone_emergencia', 'foto', 'agregado_id'], order: 'nome' },
   tratamentos: { cols: ['paciente_id', 'medico_id', 'servico_id', 'descricao', 'dente', 'faces', 'estado', 'data', 'preco', 'desconto_pct', 'iva', 'iva_id', 'notas', 'orcamento_id', 'marcacao_id'], order: 'data DESC, id DESC' },
@@ -218,7 +219,15 @@ function guardarMarcacao(id, body, user) {
   if (id && o.inicio && o.inicio !== atual.inicio) o.remarcacoes = (atual.remarcacoes || 0) + 1;
   o.alterado_por = user.id; o.alterado_em = agora();
   if (id) { update('marcacoes', id, o); D.log(user.id, 'editar marcação', `id=${id}`); }
-  else { o.criado_por = user.id; id = insert('marcacoes', o); D.log(user.id, 'criar marcação', `id=${id}`); }
+  else {
+    o.criado_por = user.id; id = insert('marcacoes', o); D.log(user.id, 'criar marcação', `id=${id}`);
+    const cfg = D.getConfig();
+    if (cfg.confirmacao_auto === '1' && cfg.confirmacao_modelo_id && !body.sem_aviso) {
+      const mid = id;
+      setImmediate(() => enviarMensagens({ modelo_id: Number(cfg.confirmacao_modelo_id), canais: (cfg.confirmacao_canais || 'sms').split(','), marcacao_ids: [mid], enviar: true }, user)
+        .catch(e => console.error('confirmação automática:', e.message)));
+    }
+  }
   return get(`${AGENDA_SQL} WHERE m.id=?`, id);
 }
 
@@ -492,32 +501,77 @@ function estatisticas(q) {
 }
 
 // ---------- SMS ----------
-function renderSms(texto, ctx) {
-  return String(texto).replace(/\{(\w+)\}/g, (m, k) => (ctx[k] !== undefined && ctx[k] !== null ? ctx[k] : m));
+const SEGREDOS = ['smtp_password', 'sms_token'];
+const MASCARA = '••••••••';
+function cfgPublica() { const c = D.getConfig(); for (const k of SEGREDOS) if (c[k]) c[k] = MASCARA; return c; }
+const emailConfigurado = c => !!(c.smtp_host && c.smtp_de);
+const smsConfigurado = c => !!c.sms_fornecedor;
+
+function contextoMarcacao(m, cfg) {
+  const [d, h] = m.inicio.split('T');
+  const dt = new Date(m.inicio);
+  return { data: d.split('-').reverse().join('/'), hora: h, dia_semana: ['domingo', 'segunda-feira', 'terça-feira', 'quarta-feira', 'quinta-feira', 'sexta-feira', 'sábado'][dt.getDay()],
+    medico: m.medico_nome || '', servico: m.servico_nome || '', gabinete: m.gabinete_nome || '' };
 }
-function prepararSms(body, user) {
+
+// canais: ['sms','email']; enviar=false apenas prepara (para copiar/abrir no telemóvel)
+async function enviarMensagens(body, user) {
   const modelo = get('SELECT * FROM sms_modelos WHERE id=?', body.modelo_id);
-  if (!modelo) throw new HttpError(400, 'Escolha um modelo de SMS');
+  if (!modelo) throw new HttpError(400, 'Escolha um modelo de mensagem');
   const cfg = D.getConfig();
+  const canais = (body.canais && body.canais.length ? body.canais : ['sms']).filter(c => c === 'sms' || c === 'email');
+  const alvos = [];
+  for (const mid of body.marcacao_ids || []) {
+    const m = get(`${AGENDA_SQL} WHERE m.id=?`, mid); if (!m) continue;
+    alvos.push({ p: get('SELECT * FROM pacientes WHERE id=?', m.paciente_id), extra: contextoMarcacao(m, cfg), marcacao_id: m.id });
+  }
+  for (const pid of body.paciente_ids || []) { const p = get('SELECT * FROM pacientes WHERE id=?', pid); if (p) alvos.push({ p, extra: {} }); }
   const out = [];
-  const add = (p, extra) => {
-    const tel = p.telemovel || p.telefone;
-    const ctx = { nome: p.nome, primeiro_nome: (p.nome || '').split(' ')[0], clinica: cfg.clinica_nome, telefone_clinica: cfg.clinica_telefone, ...extra };
-    const texto = renderSms(modelo.texto, ctx);
-    const estado = !tel ? 'sem número' : !p.sms_ok ? 'sem consentimento' : 'preparado';
-    run('INSERT INTO sms_historico (paciente_id, telefone, texto, data, estado, user_id) VALUES (?,?,?,datetime(\'now\',\'localtime\'),?,?)', p.id, tel || '', texto, estado, user.id);
-    out.push({ paciente_id: p.id, nome: p.nome, telefone: tel, texto, estado });
-  };
-  tx(() => {
-    for (const mid of body.marcacao_ids || []) {
-      const m = get(`${AGENDA_SQL} WHERE m.id=?`, mid); if (!m) continue;
-      const p = get('SELECT * FROM pacientes WHERE id=?', m.paciente_id);
-      const [d, h] = m.inicio.split('T');
-      add(p, { data: d.split('-').reverse().join('/'), hora: h, medico: m.medico_nome, servico: m.servico_nome || '' });
+  for (const { p, extra, marcacao_id } of alvos) {
+    const ctx = { nome: p.nome, primeiro_nome: (p.nome || '').split(' ')[0], clinica: cfg.clinica_nome, telefone_clinica: cfg.clinica_telefone,
+      email_clinica: cfg.clinica_email, morada_clinica: [cfg.clinica_morada, cfg.clinica_cp].filter(Boolean).join(', '), ...extra };
+    const texto = COM.renderModelo(modelo.texto, ctx);
+    const assunto = COM.renderModelo(modelo.assunto || modelo.nome, ctx);
+    for (const canal of canais) {
+      const destino = canal === 'sms' ? (p.telemovel || p.telefone || '') : (p.email || '');
+      let estado, erro = null;
+      if (!destino) estado = canal === 'sms' ? 'sem número' : 'sem e-mail';
+      else if (canal === 'sms' ? !p.sms_ok : !p.email_ok) estado = 'sem consentimento';
+      else if (body.enviar === false || !(canal === 'sms' ? smsConfigurado(cfg) : emailConfigurado(cfg))) estado = 'preparado';
+      else {
+        try {
+          if (canal === 'sms') await COM.enviarSMS(cfg, { para: destino, texto });
+          else await COM.enviarEmail(cfg, { para: destino, assunto, texto, html: `<div style="font-family:Arial,sans-serif;font-size:14px;line-height:1.5">${texto.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/\n/g, '<br>')}</div>` });
+          estado = 'enviado';
+        } catch (e) { estado = 'erro'; erro = e.message; }
+      }
+      run("INSERT INTO sms_historico (paciente_id, telefone, texto, data, estado, user_id, canal, erro, marcacao_id) VALUES (?,?,?,datetime('now','localtime'),?,?,?,?,?)",
+        p.id, destino, canal === 'email' ? `${assunto}\n\n${texto}` : texto, estado, user ? user.id : null, canal, erro, marcacao_id || null);
+      out.push({ paciente_id: p.id, nome: p.nome, canal, destino, telefone: canal === 'sms' ? destino : '', texto, assunto, estado, erro });
     }
-    for (const pid of body.paciente_ids || []) { const p = get('SELECT * FROM pacientes WHERE id=?', pid); if (p) add(p, {}); }
-  });
+  }
   return out;
+}
+
+// lembretes automáticos (corre a cada 5 minutos)
+let lembretesAtivos = false;
+async function lembretesAutomaticos() {
+  const cfg = D.getConfig();
+  if (cfg.lembrete_auto !== '1' || !cfg.lembrete_modelo_id || lembretesAtivos) return;
+  lembretesAtivos = true;
+  try {
+    const horas = Number(cfg.lembrete_horas) || 24;
+    const agoraD = new Date(); const lim = new Date(agoraD.getTime() + horas * 3600e3);
+    const f = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}T${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+    const ids = all(`SELECT m.id FROM marcacoes m LEFT JOIN estados e ON e.id=m.estado_id WHERE m.inicio > ? AND m.inicio <= ? AND m.lembrete_em IS NULL
+      AND COALESCE(e.categoria,'OUTRAS') NOT IN ('INATIVAS','FALTAS','REALIZADAS')`, f(agoraD), f(lim)).map(r => r.id);
+    for (const id of ids) {
+      run("UPDATE marcacoes SET lembrete_em=datetime('now','localtime') WHERE id=?", id);
+      await enviarMensagens({ modelo_id: Number(cfg.lembrete_modelo_id), canais: (cfg.lembrete_canais || 'sms').split(','), marcacao_ids: [id], enviar: true }, null);
+    }
+    if (ids.length) D.log(null, 'lembretes automáticos', `${ids.length} marcação(ões)`);
+  } catch (e) { console.error('lembretes:', e.message); }
+  finally { lembretesAtivos = false; }
 }
 
 // ---------- backup ----------
@@ -702,11 +756,14 @@ async function api(req, res, url) {
       return { ok: true };
     }
     case 'config':
-      if (m === 'GET') return D.getConfig();
+      if (m === 'GET') return cfgPublica();
       requireAdmin(user);
-      for (const [k, v] of Object.entries(body)) run('INSERT INTO config VALUES (?,?) ON CONFLICT(chave) DO UPDATE SET valor=excluded.valor', k, v == null ? '' : String(v));
+      for (const [k, v] of Object.entries(body)) if (!(SEGREDOS.includes(k) && v === MASCARA)) run('INSERT INTO config VALUES (?,?) ON CONFLICT(chave) DO UPDATE SET valor=excluded.valor', k, v == null ? '' : String(v));
       D.log(user.id, 'alterar configuração', Object.keys(body).join(','));
-      return D.getConfig();
+      return cfgPublica();
+    case 'servicos-frequentes':
+      return all(`SELECT servico_id, COUNT(*) n FROM tratamentos WHERE servico_id IS NOT NULL AND criado_em >= date('now','-365 days')
+        ${q.get('medico_id') ? 'AND medico_id=' + Number(q.get('medico_id')) : ''} GROUP BY servico_id ORDER BY n DESC LIMIT 12`);
     case 'lookups': // dados de referência para a interface
       return {
         medicos: all('SELECT * FROM medicos ORDER BY nome'), gabinetes: all('SELECT * FROM gabinetes ORDER BY nome'),
@@ -716,7 +773,7 @@ async function api(req, res, url) {
         armazens: all('SELECT * FROM armazens ORDER BY id'), sms_modelos: all('SELECT * FROM sms_modelos ORDER BY nome'),
         ivas: all('SELECT * FROM ivas ORDER BY regiao, taxa'), isencoes: D.ISENCOES,
         tipos_bloqueio: TIPOS_BLOQ, utilizadores: all('SELECT id, nome FROM users ORDER BY nome'),
-        config: D.getConfig(),
+        config: cfgPublica(),
       };
     case 'users': {
       requireAdmin(user);
@@ -778,8 +835,8 @@ async function api(req, res, url) {
       if (id && r2_ === 'em-aberto') return emAberto(id);
       if (id && r2_ === 'tratamentos') return all(`SELECT t.*, md.nome medico_nome, s.codigo servico_codigo, d.numero documento_numero, d.tipo documento_tipo, d.total documento_total,
         COALESCE((SELECT SUM(valor) FROM pagamentos pg WHERE pg.documento_id=d.id AND pg.estado='ativo'),0) + COALESCE((SELECT SUM(total) FROM documentos n WHERE n.ref_documento_id=d.id AND n.tipo='NC' AND n.estado='emitido'),0) documento_pago,
-        o.numero orcamento_numero, o.estado orcamento_estado FROM tratamentos t
-        LEFT JOIN medicos md ON md.id=t.medico_id LEFT JOIN servicos s ON s.id=t.servico_id LEFT JOIN documentos d ON d.id=t.documento_id LEFT JOIN orcamentos o ON o.id=t.orcamento_id
+        o.numero orcamento_numero, o.estado orcamento_estado, mk.inicio marcacao_inicio FROM tratamentos t
+        LEFT JOIN medicos md ON md.id=t.medico_id LEFT JOIN servicos s ON s.id=t.servico_id LEFT JOIN documentos d ON d.id=t.documento_id LEFT JOIN orcamentos o ON o.id=t.orcamento_id LEFT JOIN marcacoes mk ON mk.id=t.marcacao_id
         WHERE t.paciente_id=? ORDER BY CASE t.estado WHEN 'planeado' THEN 0 ELSE 1 END, t.data DESC, t.id DESC`, id);
       if (id && r2_ === 'notas') return all(`SELECT n.*, md.nome medico_nome, u.nome user_nome FROM notas_clinicas n LEFT JOIN medicos md ON md.id=n.medico_id
         LEFT JOIN users u ON u.id=n.user_id WHERE n.paciente_id=? ORDER BY n.data DESC, n.id DESC`, id);
@@ -892,6 +949,16 @@ async function api(req, res, url) {
       }
       if (m === 'GET' && id) return docComLinhas(id);
       if (m === 'POST' && id && r2_ === 'anular') return anularDocumento(id, user, body.motivo);
+      if (m === 'POST' && id && r2_ === 'email') {
+        const d = docComLinhas(id); const cfg = D.getConfig();
+        const para = body.para || get('SELECT email FROM pacientes WHERE id=?', d.paciente_id)?.email;
+        if (!para) throw new HttpError(400, 'O paciente não tem e-mail');
+        await COM.enviarEmail(cfg, { para, assunto: `${d.tipo_nome} ${d.numero} — ${cfg.clinica_nome || ''}`,
+          html: `<div style="font-family:Arial,sans-serif;font-size:13px">${String(body.mensagem || '').replace(/</g, '&lt;').replace(/\n/g, '<br>')}</div><hr>${String(body.html || '')}` });
+        run("INSERT INTO sms_historico (paciente_id, telefone, texto, data, estado, user_id, canal) VALUES (?,?,?,datetime('now','localtime'),'enviado',?,'email')", d.paciente_id, para, `${d.tipo_nome} ${d.numero} enviado por e-mail`, user.id);
+        D.log(user.id, 'enviar documento por e-mail', d.numero);
+        return { ok: true, para };
+      }
       if (m === 'POST') return criarDocumento(body, user);
       break;
     }
@@ -938,8 +1005,16 @@ async function api(req, res, url) {
       return rows.filter(r => md(de) <= md(ate) ? (md(r.data_nasc) >= md(de) && md(r.data_nasc) <= md(ate)) : (md(r.data_nasc) >= md(de) || md(r.data_nasc) <= md(ate)));
     }
     case 'sms': {
-      if (r1 === 'preparar' && m === 'POST') return prepararSms(body, user);
+      if ((r1 === 'preparar' || r1 === 'enviar') && m === 'POST') return enviarMensagens({ ...body, enviar: r1 === 'enviar' }, user);
       if (r1 === 'historico') return all(`SELECT h.*, p.nome paciente_nome FROM sms_historico h LEFT JOIN pacientes p ON p.id=h.paciente_id ORDER BY h.id DESC LIMIT 500`);
+      if (r1 === 'teste' && m === 'POST') {
+        requireAdmin(user);
+        const cfg = D.getConfig();
+        if (body.canal === 'email') await COM.enviarEmail(cfg, { para: body.para, assunto: 'Teste de e-mail — ' + (cfg.clinica_nome || 'Clínica'), texto: 'Se recebeu esta mensagem, o envio de e-mail está a funcionar.' });
+        else await COM.enviarSMS(cfg, { para: body.para, texto: 'Teste de SMS — ' + (cfg.clinica_nome || 'Clínica') });
+        return { ok: true };
+      }
+      if (r1 === 'estado') { const c = D.getConfig(); return { email: emailConfigurado(c), sms: smsConfigurado(c) }; }
       if (r1 === 'marcar-enviado' && m === 'POST') { for (const hid of body.ids || []) run("UPDATE sms_historico SET estado='enviado' WHERE id=?", hid); return { ok: true }; }
       break;
     }
@@ -994,6 +1069,8 @@ const server = http.createServer(async (req, res) => {
 });
 
 if (require.main === module) {
+  setInterval(lembretesAutomaticos, 5 * 60 * 1000);
+  setTimeout(lembretesAutomaticos, 15 * 1000);
   server.listen(PORT, '0.0.0.0', () => {
     const ips = Object.values(os.networkInterfaces()).flat().filter(i => i && i.family === 'IPv4' && !i.internal).map(i => i.address);
     console.log(`\n  Clínica Dentária — servidor ativo`);
@@ -1003,4 +1080,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { server, feriadosAno, pascoa, validarNif };
+module.exports = { lembretesAutomaticos, enviarMensagens, server, feriadosAno, pascoa, validarNif };

@@ -268,6 +268,7 @@ async function tabTratamentos(el, p) {
     <span><b class="num">${selecionados.length}</b> selecionado(s) · <b class="num">${eur(soma(selecionados))}</b></span>
     <div class="spacer"></div>
     <button data-act="orc">Orçamento</button>
+    <button data-act="agendar">Agendar</button>
     <button data-act="feito">Marcar feito</button>
     <button data-act="PF">Pró-forma</button>
     <button data-act="FS">Fatura simplificada</button>
@@ -290,6 +291,10 @@ async function tabTratamentos(el, p) {
       const l = selecionados.filter(t => t.estado === 'planeado'); if (!l.length) return toast('Nenhum dos selecionados está por fazer', true);
       for (const t of l) await PUT('t/tratamentos/' + t.id, { estado: 'realizado', data: isoDate() });
       toast(`${l.length} tratamento(s) marcado(s) como feito`); return done();
+    }
+    if (a === 'agendar') {
+      const l = selecionados.filter(t => t.estado === 'planeado'); if (!l.length) return toast('Selecione tratamentos por fazer', true);
+      return agendarTratamentos(l, p, done);
     }
     if (a === 'orc') {
       const l = selecionados.filter(t => !t.documento_id); if (!l.length) return toast('Os selecionados já estão faturados', true);

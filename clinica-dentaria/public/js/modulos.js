@@ -225,14 +225,15 @@ route('estatisticas', async (view) => {
 // ---------- comunicação ----------
 route('comunicacao', async (view, [sub = 'aniversarios']) => {
   view.innerHTML = `<div class="page-head"><h1>Comunicação</h1></div>
-    <div class="subnav">${[['aniversarios', 'Aniversários'], ['faltas', 'Faltas recentes'], ['revisao', 'Sem consulta há 1 ano'], ['historico', 'Histórico SMS']].map(([k, l]) => `<button class="${k === sub ? 'active' : ''}" data-s="${k}">${l}</button>`).join('')}</div>
+    <div class="subnav">${[['aniversarios', 'Aniversários'], ['faltas', 'Faltas recentes'], ['revisao', 'Sem consulta há 1 ano'], ['historico', 'Histórico de mensagens']].map(([k, l]) => `<button class="${k === sub ? 'active' : ''}" data-s="${k}">${l}</button>`).join('')}</div>
     <div class="card" id="cm-body"></div>`;
   $$('.subnav button', view).forEach(b => b.onclick = () => go('#/comunicacao/' + b.dataset.s));
   const body = $('#cm-body');
   if (sub === 'historico') {
     const h = await GET('sms/historico');
-    body.innerHTML = table(h, [{ h: 'Data', f: r => esc(r.data) }, { h: 'Paciente', f: r => esc(r.paciente_nome) }, { h: 'Número', f: r => esc(r.telefone) },
-      { h: 'Mensagem', f: r => `<span class="small">${esc(r.texto)}</span>` }, { h: 'Estado', f: r => `<span class="badge ${r.estado === 'enviado' ? 'ok' : r.estado === 'preparado' ? 'info' : 'warn'}">${esc(r.estado)}</span>` },
+    body.innerHTML = table(h, [{ h: 'Data', f: r => `<span class="num">${esc(r.data)}</span>` }, { h: 'Paciente', f: r => esc(r.paciente_nome) }, { h: 'Canal', f: r => r.canal === 'email' ? 'E-mail' : 'SMS' },
+      { h: 'Destino', f: r => `<span class="num">${esc(r.telefone)}</span>` },
+      { h: 'Mensagem', f: r => `<span class="small">${esc(r.texto).replace(/\n/g, '<br>')}</span>` }, { h: 'Estado', f: r => `<span class="st ${EST_MSG[r.estado] || ''}">${esc(r.estado)}</span>${r.erro ? `<div class="small danger">${esc(r.erro)}</div>` : ''}` },
       { h: '', f: r => r.estado === 'preparado' ? `<button class="sm" data-env="${r.id}">Marcar enviado</button>` : '' }], { empty: 'Sem mensagens' });
     $$('[data-env]', body).forEach(b => b.onclick = async () => { await POST('sms/marcar-enviado', { ids: [Number(b.dataset.env)] }); render(); });
     return;
@@ -262,11 +263,10 @@ route('comunicacao', async (view, [sub = 'aniversarios']) => {
   body.insertAdjacentHTML('beforeend', `${table(rows, [{ h: '', f: r => `<input type="checkbox" data-p="${r.id}" checked>` }, { h: 'Paciente', f: r => `<a href="#/paciente/${r.id}">${esc(r.nome)}</a>` },
     { h: sub === 'aniversarios' ? 'Aniversário' : 'Info', f: r => r.data_nasc ? `${fmtDate(r.data_nasc).slice(0, 5)} (${idade(r.data_nasc) + (r.data_nasc.slice(5) > isoDate().slice(5) ? 1 : 0)} anos)` : esc(r.info) },
     { h: 'Telemóvel', f: r => esc(r.telemovel) }], { empty: 'Nenhum paciente encontrado' })}
-    ${rows.length ? `<div class="row end" style="margin-top:10px">${sel('m', opts(modelos, mdef?.id), 'id="cm-mod" style="width:auto"')}<button class="primary" id="cm-send">Preparar SMS</button></div><div id="cm-res"></div>` : ''}`);
+    ${rows.length ? `<div class="row end" style="margin-top:10px"><button class="primary" id="cm-send">Enviar mensagem aos selecionados</button></div>` : ''}`);
   if (rows.length) $('#cm-send').onclick = async () => {
     const ids = $$('[data-p]:checked', body).map(c => Number(c.dataset.p));
     if (!ids.length) return toast('Selecione pacientes', true);
-    const r = await POST('sms/preparar', { modelo_id: Number($('#cm-mod').value), paciente_ids: ids });
-    $('#cm-res').innerHTML = smsResultado(r); bindSmsResultado($('#cm-res'));
+    enviarAviso({ paciente_ids: ids }, `Mensagem para ${ids.length} paciente(s)`, mdef?.nome);
   };
 });

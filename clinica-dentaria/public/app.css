@@ -364,3 +364,17 @@ table.t tr[class*="row-"]:hover td { background: var(--hover); }
 .st-filtros button { display: inline-flex; align-items: center; gap: 4px; }
 .actionbar { position: sticky; bottom: 0; z-index: 10; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding: 8px 12px; background: var(--sheet); border: 1px solid var(--blue);
   border-radius: var(--r-lg); box-shadow: var(--shadow-pop); margin-top: -4px; animation: rise .16s ease-out; }
+
+/* ---------- seletor de tratamentos ---------- */
+.tp { margin-top: 8px; display: grid; gap: 6px; }
+.tp-sel { display: flex; justify-content: space-between; gap: 8px; padding: 6px 10px; border: 1px solid var(--rule); border-radius: var(--r); background: var(--sheet); min-height: 32px; align-items: center; }
+.tp-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.chip { padding: 2px 8px; font-size: .84rem; border-radius: 999px; background: var(--paper); border-color: var(--rule); font-weight: 500; }
+.chip.on { background: var(--blue); border-color: var(--blue); color: #fff; }
+.tp-list { max-height: 230px; overflow: auto; border: 1px solid var(--rule); border-radius: var(--r); background: var(--sheet); }
+.tp-g { position: sticky; top: 0; background: #f6f7f9; font-size: .76rem; font-weight: 600; color: var(--graphite); padding: 3px 8px; border-bottom: 1px solid var(--rule-2); }
+.tp-i { display: flex; width: 100%; justify-content: space-between; gap: 8px; border: 0; border-bottom: 1px solid var(--rule-2); border-radius: 0; padding: 4px 8px; text-align: left; white-space: normal; font-weight: 400; background: none; }
+.tp-i:hover { background: var(--hover); }
+.tp-i.on { background: var(--blue-wash); color: var(--blue-ink); font-weight: 600; }
+.od-hist li button + button { margin-left: 2px; }
+.od-hist .grow { overflow-wrap: anywhere; line-height: 1.35; }
