@@ -165,9 +165,9 @@ route('consulta', async (view, [id]) => {
     const feito = nesta.filter(t => t.estado === 'realizado'), nec = trat.filter(t => t.estado === 'planeado');
     const porFat = feito.filter(t => !t.documento_id);
     const linha = (t, act2) => `<li class="${t.estado === 'planeado' ? 'is-nec' : 'is-feito'}"><span class="mark"></span><span class="grow">${esc(t.descricao)}${t.dente ? ` <span class="muted num">${esc(t.dente)}${t.faces ? ' ' + esc(t.faces) : ''}</span>` : ''}</span>
-      <span class="num">${eur(liqTrat(t))}</span>${act2 || ''}</li>`;
+      ${t.estado === 'realizado' ? estadoChip(t) : ''}<span class="num">${eur(liqTrat(t))}</span>${act2 || ''}</li>`;
     $('#cs-resumo').innerHTML = `<h3>Feito nesta consulta</h3>
-      ${feito.length ? `<ul class="od-hist">${feito.map(t => linha(t, t.documento_numero ? ` <a href="#" data-doc="${t.documento_id}" class="small">${esc(t.documento_numero)}</a>` : '')).join('')}</ul>` : '<p class="muted small">Nada registado ainda. Selecione dentes no odontograma e carregue em "Feito".</p>'}
+      ${feito.length ? `<ul class="od-hist">${feito.map(t => linha(t, t.documento_id ? ` <a href="#" data-doc="${t.documento_id}" class="small" title="Ver documento">ver</a>` : '')).join('')}</ul>` : '<p class="muted small">Nada registado ainda. Selecione dentes no odontograma e carregue em "Feito".</p>'}
       <div class="row between" style="margin-top:8px"><span class="muted">Total feito</span><b class="ok num">${eur(feito.reduce((s, t) => s + liqTrat(t), 0))}</b></div>
       <button class="primary" id="cs-fat" style="width:100%;justify-content:center;margin-top:8px" ${porFat.length ? '' : 'disabled'}>Faturar o que foi feito${porFat.length ? ' · ' + eur(porFat.reduce((s, t) => s + liqTrat(t), 0)) : ''}</button>
       <h3 style="margin-top:16px">Necessário (plano em aberto)</h3>

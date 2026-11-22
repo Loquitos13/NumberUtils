@@ -341,3 +341,26 @@ svg.dente { width: 38px; height: 116px; display: block; overflow: visible; }
 .seg button { border: 0; border-left: 1px solid var(--rule-2); border-radius: 0; padding: 2px 9px; font-size: .88rem; background: var(--sheet); }
 .seg button:first-child { border-left: 0; }
 .seg button.on { background: var(--blue-wash); color: var(--blue-ink); font-weight: 600; }
+
+/* ---------- estados de tratamento e tipos de documento ---------- */
+:root { --orc: #8a4f00; --orc-wash: #fbf0dc; --fat: #5b2f8f; --fat-wash: #f1eafa; --pago: #1a6a3c; --pago-wash: #e1f2e7; }
+.st { display: inline-block; padding: 0 7px; border-radius: 3px; font-size: .8rem; font-weight: 600; line-height: 1.65; white-space: nowrap; }
+.st-nec { background: var(--red-wash); color: var(--red-ink); }
+.st-orc { background: var(--orc-wash); color: var(--orc); }
+.st-real { background: var(--blue-wash); color: var(--blue-ink); }
+.st-fat { background: var(--fat-wash); color: var(--fat); }
+.st-pago { background: var(--pago-wash); color: var(--pago); }
+.st-anul { background: var(--rule-2); color: var(--muted); text-decoration: line-through; }
+.st-dot { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 5px; vertical-align: 0; padding: 0; }
+.st-dot.st-nec { background: var(--red); } .st-dot.st-orc { background: #c98a1e; } .st-dot.st-real { background: var(--blue); } .st-dot.st-fat { background: #7d4bb8; } .st-dot.st-pago { background: #2c8d55; }
+table.t tr.row-nec td { background: #fffafa; } table.t tr.row-orc td { background: #fffaf1; } table.t tr.row-real td { background: #f7f9fe; }
+table.t tr.row-fat td { background: #faf7fd; } table.t tr.row-pago td { background: #f5fbf7; }
+table.t tr[class*="row-"]:hover td { background: var(--hover); }
+.dt { display: inline-block; min-width: 26px; text-align: center; padding: 0 4px; border-radius: 3px; font-size: .74rem; font-weight: 700; line-height: 1.6; letter-spacing: .02em; }
+.dt-OR, .dt-PF { background: var(--orc-wash); color: var(--orc); }
+.dt-FT, .dt-FS, .dt-ND { background: var(--fat-wash); color: var(--fat); }
+.dt-FR, .dt-RC { background: var(--pago-wash); color: var(--pago); }
+.dt-NC { background: var(--rule-2); color: var(--graphite); }
+.st-filtros button { display: inline-flex; align-items: center; gap: 4px; }
+.actionbar { position: sticky; bottom: 0; z-index: 10; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding: 8px 12px; background: var(--sheet); border: 1px solid var(--blue);
+  border-radius: var(--r-lg); box-shadow: var(--shadow-pop); margin-top: -4px; animation: rise .16s ease-out; }

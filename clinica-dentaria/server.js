@@ -233,7 +233,11 @@ function ocupacaoDia(medicoId, dia) {
 const hhmm = t => `${String(Math.floor(t / 60)).padStart(2, '0')}:${String(t % 60).padStart(2, '0')}`;
 
 // ---------- documentos (faturação) ----------
-const TIPOS_DOC = { FT: 'Fatura', FR: 'Fatura-Recibo', RC: 'Recibo', NC: 'Nota de Crédito' };
+// tipos de documento (SAF-T PT): faturação FT/FS/FR/ND/NC, recibos RC, documentos de conferência PF
+const TIPOS_DOC = { FT: 'Fatura', FS: 'Fatura Simplificada', FR: 'Fatura-Recibo', ND: 'Nota de Débito', NC: 'Nota de Crédito', RC: 'Recibo', PF: 'Fatura Pró-forma' };
+const DEBITO = ['FT', 'FS', 'FR', 'ND'];
+const SQL_DEB = "('FT','FS','FR','ND')", SQL_FAT = "('FT','FS','FR','ND','NC')";
+const LIMITE_FS = 100; // art. 40.º CIVA: prestações de serviços a não sujeitos passivos
 
 function proximoNumero(tipo, data) {
   const ano = Number(String(data).slice(0, 4));
@@ -263,7 +267,12 @@ function calcLinha(l) {
 
 function criarDocumento(body, user) {
   const tipo = body.tipo;
-  if (!['FT', 'FR', 'NC'].includes(tipo)) throw new HttpError(400, 'Tipo de documento inválido');
+  if (!['FT', 'FS', 'FR', 'ND', 'NC', 'PF'].includes(tipo)) throw new HttpError(400, 'Tipo de documento inválido');
+  if ((tipo === 'NC' || tipo === 'ND') && !body.ref_documento_id) throw new HttpError(400, `A ${TIPOS_DOC[tipo]} tem de referir o documento de origem`);
+  if (body.ref_documento_id) {
+    const ref = get('SELECT * FROM documentos WHERE id=?', body.ref_documento_id);
+    if (!ref || ref.estado !== 'emitido' || !DEBITO.includes(ref.tipo)) throw new HttpError(400, 'Documento de origem inválido ou anulado');
+  }
   if (!body.paciente_id) throw new HttpError(400, 'Escolha o paciente');
   const linhas = Array.isArray(body.linhas) ? body.linhas.filter(l => l.descricao) : [];
   if (!linhas.length) throw new HttpError(400, 'O documento não tem linhas');
@@ -272,6 +281,8 @@ function criarDocumento(body, user) {
     let tb = 0, ti = 0;
     const calc = linhas.map(l => { const c = calcLinha(l); tb += c.base; ti += c.iva; return { l, c }; });
     tb = r2(tb); ti = r2(ti); const total = r2(tb + ti);
+    if (tipo === 'FS' && total > LIMITE_FS) throw new HttpError(400, `A fatura simplificada só pode ser usada até ${LIMITE_FS} € em prestações de serviços (art. 40.º do CIVA). Use fatura-recibo.`);
+    if (!(total > 0)) throw new HttpError(400, 'O total do documento deve ser superior a zero');
     const numero = proximoNumero(tipo, data);
     const docId = insert('documentos', {
       tipo, numero, paciente_id: body.paciente_id, entidade_id: body.entidade_id || null, medico_id: body.medico_id || null,
@@ -281,10 +292,10 @@ function criarDocumento(body, user) {
     for (const { l, c } of calc) {
       insert('documento_linhas', { documento_id: docId, iva_id: c.ivaId, isencao_cod: c.isCod, isencao_motivo: c.isMot, servico_id: l.servico_id || null, tratamento_id: l.tratamento_id || null,
         descricao: l.descricao, dente: l.dente || null, qtd: c.qtd, preco: c.preco, desconto_pct: c.desc, iva: c.ivaPct, total: r2(c.base + c.iva) });
-      if (l.tratamento_id && tipo !== 'NC') run("UPDATE tratamentos SET documento_id=?, estado=CASE WHEN estado='planeado' THEN 'realizado' ELSE estado END, data=COALESCE(data, ?) WHERE id=?", docId, data, l.tratamento_id);
+      if (l.tratamento_id && DEBITO.includes(tipo)) run("UPDATE tratamentos SET documento_id=?, estado=CASE WHEN estado='planeado' THEN 'realizado' ELSE estado END, data=COALESCE(data, ?) WHERE id=?", docId, data, l.tratamento_id);
       if (l.tratamento_id && tipo === 'NC') run('UPDATE tratamentos SET documento_id=NULL WHERE id=?', l.tratamento_id);
     }
-    if (tipo === 'FR') {
+    if (tipo === 'FR' || (tipo === 'FS' && body.pago_ato !== false && body.pago_ato !== 0)) {
       insert('pagamentos', { paciente_id: body.paciente_id, documento_id: docId, recibo_id: docId, data, valor: total, metodo: body.metodo || 'Numerário' });
     }
     D.log(user.id, `emitir ${tipo}`, numero);
@@ -292,18 +303,35 @@ function criarDocumento(body, user) {
   });
 }
 
+function emAberto(pid) {
+  return all(`SELECT d.id, d.tipo, d.numero, d.data, d.total, COALESCE((SELECT SUM(valor) FROM pagamentos WHERE documento_id=d.id AND estado='ativo'),0) pago,
+    COALESCE((SELECT SUM(total) FROM documentos n WHERE n.ref_documento_id=d.id AND n.tipo='NC' AND n.estado='emitido'),0) creditado
+    FROM documentos d WHERE d.paciente_id=? AND d.estado='emitido' AND d.tipo IN ${SQL_DEB} ORDER BY d.data, d.id`, pid)
+    .map(d => ({ ...d, em_divida: r2(d.total - d.pago - d.creditado) })).filter(d => d.em_divida > 0.004);
+}
+
 function criarRecibo(body, user) {
   const valor = r2(body.valor);
   if (!body.paciente_id) throw new HttpError(400, 'Escolha o paciente');
   if (!(valor > 0)) throw new HttpError(400, 'Valor inválido');
   const data = body.data || today();
+  const ids = (Array.isArray(body.documento_ids) ? body.documento_ids : body.documento_id ? [body.documento_id] : []).map(Number);
+  const abertos = emAberto(body.paciente_id).filter(d => ids.includes(d.id));
   return tx(() => {
     const numero = proximoNumero('RC', data);
     const docId = insert('documentos', { tipo: 'RC', numero, paciente_id: body.paciente_id, data, total_base: valor, total_iva: 0, total: valor,
-      notas: body.notas || null, user_id: user.id, ref_documento_id: body.documento_id || null });
-    insert('documento_linhas', { documento_id: docId, descricao: body.documento_id ? `Pagamento ref. ${get('SELECT numero FROM documentos WHERE id=?', body.documento_id)?.numero || ''}` : 'Pagamento por conta',
-      qtd: 1, preco: valor, total: valor });
-    insert('pagamentos', { paciente_id: body.paciente_id, documento_id: body.documento_id || null, recibo_id: docId, data, valor, metodo: body.metodo || 'Numerário', notas: body.notas || null });
+      notas: body.notas || null, user_id: user.id, ref_documento_id: abertos.length === 1 ? abertos[0].id : null });
+    let resto = valor;
+    for (const d of abertos) {
+      if (resto <= 0) break;
+      const v = r2(Math.min(resto, d.em_divida)); resto = r2(resto - v);
+      insert('documento_linhas', { documento_id: docId, descricao: `Liquidação ${d.numero} de ${d.data.split('-').reverse().join('/')}`, qtd: 1, preco: v, total: v });
+      insert('pagamentos', { paciente_id: body.paciente_id, documento_id: d.id, recibo_id: docId, data, valor: v, metodo: body.metodo || 'Numerário', notas: body.notas || null });
+    }
+    if (resto > 0) {
+      insert('documento_linhas', { documento_id: docId, descricao: 'Pagamento por conta', qtd: 1, preco: resto, total: resto });
+      insert('pagamentos', { paciente_id: body.paciente_id, documento_id: null, recibo_id: docId, data, valor: resto, metodo: body.metodo || 'Numerário', notas: body.notas || null });
+    }
     D.log(user.id, 'emitir RC', numero);
     return docComLinhas(docId);
   });
@@ -331,11 +359,15 @@ function docComLinhas(id) {
   d.linhas = all('SELECT * FROM documento_linhas WHERE documento_id=? ORDER BY id', id);
   d.pagamentos = all("SELECT * FROM pagamentos WHERE recibo_id=? OR documento_id=?", id, id);
   d.tipo_nome = TIPOS_DOC[d.tipo] || d.tipo;
+  d.pago = r2(get("SELECT COALESCE(SUM(valor),0) v FROM pagamentos WHERE documento_id=? AND estado='ativo'", id).v);
+  d.creditado = r2(get("SELECT COALESCE(SUM(total),0) v FROM documentos WHERE ref_documento_id=? AND tipo='NC' AND estado='emitido'", id).v);
+  d.em_divida = DEBITO.includes(d.tipo) && d.estado === 'emitido' ? r2(d.total - d.pago - d.creditado) : 0;
+  d.ref_numero = d.ref_documento_id ? get('SELECT numero FROM documentos WHERE id=?', d.ref_documento_id)?.numero : null;
   return d;
 }
 
 function saldoPaciente(pid) {
-  const deb = get("SELECT COALESCE(SUM(total),0) s FROM documentos WHERE paciente_id=? AND estado='emitido' AND tipo IN ('FT','FR')", pid).s;
+  const deb = get(`SELECT COALESCE(SUM(total),0) s FROM documentos WHERE paciente_id=? AND estado='emitido' AND tipo IN ${SQL_DEB}`, pid).s;
   const nc = get("SELECT COALESCE(SUM(total),0) s FROM documentos WHERE paciente_id=? AND estado='emitido' AND tipo='NC'", pid).s;
   const pag = get("SELECT COALESCE(SUM(valor),0) s FROM pagamentos WHERE paciente_id=? AND estado='ativo'", pid).s;
   return { faturado: r2(deb), creditos: r2(nc), pago: r2(pag), saldo: r2(deb - nc - pag) };
@@ -345,11 +377,11 @@ function contaCorrente(pid) {
   const mov = [];
   for (const d of all("SELECT * FROM documentos WHERE paciente_id=? ORDER BY data, id", pid)) {
     const ativo = d.estado === 'emitido';
-    if (d.tipo === 'FT' || d.tipo === 'FR') mov.push({ data: d.data, documento_id: d.id, numero: d.numero, tipo: d.tipo, descricao: TIPOS_DOC[d.tipo], debito: d.total, credito: 0, anulado: !ativo });
+    if (DEBITO.includes(d.tipo)) mov.push({ data: d.data, documento_id: d.id, numero: d.numero, tipo: d.tipo, descricao: TIPOS_DOC[d.tipo], debito: d.total, credito: 0, anulado: !ativo });
     if (d.tipo === 'NC') mov.push({ data: d.data, documento_id: d.id, numero: d.numero, tipo: d.tipo, descricao: 'Nota de Crédito', debito: 0, credito: d.total, anulado: !ativo });
-    if (d.tipo === 'FR' || d.tipo === 'RC') {
+    if (d.tipo === 'FR' || d.tipo === 'RC' || d.tipo === 'FS') {
       const p = get('SELECT COALESCE(SUM(valor),0) v, MAX(metodo) metodo FROM pagamentos WHERE recibo_id=?', d.id);
-      mov.push({ data: d.data, documento_id: d.id, numero: d.numero, tipo: d.tipo, descricao: `Pagamento (${p.metodo || '-'})`, debito: 0, credito: p.v, anulado: !ativo });
+      if (p.v > 0) mov.push({ data: d.data, documento_id: d.id, numero: d.numero, tipo: d.tipo, descricao: `Pagamento (${p.metodo || '-'})`, debito: 0, credito: p.v, anulado: !ativo });
     }
   }
   let saldo = 0;
@@ -374,6 +406,7 @@ function guardarOrcamento(id, body, user) {
       const c = calcLinha(l);
       insert('orcamento_linhas', { orcamento_id: id, servico_id: l.servico_id || null, tratamento_id: l.tratamento_id || null, descricao: l.descricao, dente: l.dente || null,
         qtd: c.qtd, preco: c.preco, desconto_pct: c.desc, iva: c.ivaPct, iva_id: c.ivaId });
+      if (l.tratamento_id) run('UPDATE tratamentos SET orcamento_id=? WHERE id=? AND documento_id IS NULL', id, l.tratamento_id);
     }
     D.log(user.id, 'guardar orçamento', `id=${id}`);
     return orcamentoCompleto(id);
@@ -440,10 +473,10 @@ function estatisticas(q) {
   const fatMedico = all(`SELECT COALESCE(md.nome,'(sem médico)') nome, md.cor, md.comissao_pct, ROUND(SUM(CASE WHEN d.tipo='NC' THEN -l.total ELSE l.total END),2) total
     FROM documento_linhas l JOIN documentos d ON d.id=l.documento_id LEFT JOIN tratamentos t ON t.id=l.tratamento_id
     LEFT JOIN medicos md ON md.id=COALESCE(t.medico_id, d.medico_id)
-    WHERE d.estado='emitido' AND d.tipo IN ('FT','FR','NC') AND d.data BETWEEN ? AND ? GROUP BY md.id ORDER BY total DESC`, de, ate);
+    WHERE d.estado='emitido' AND d.tipo IN ${SQL_FAT} AND d.data BETWEEN ? AND ? GROUP BY md.id ORDER BY total DESC`, de, ate);
   for (const f of fatMedico) f.comissao = r2(f.total * (f.comissao_pct || 0) / 100);
   const fatMes = all(`SELECT substr(data,1,7) mes, ROUND(SUM(CASE WHEN tipo='NC' THEN -total ELSE total END),2) total FROM documentos
-    WHERE estado='emitido' AND tipo IN ('FT','FR','NC') AND data BETWEEN ? AND ? GROUP BY mes ORDER BY mes`, de, ate);
+    WHERE estado='emitido' AND tipo IN ${SQL_FAT} AND data BETWEEN ? AND ? GROUP BY mes ORDER BY mes`, de, ate);
   const recebMetodo = all(`SELECT COALESCE(metodo,'-') metodo, ROUND(SUM(valor),2) total FROM pagamentos WHERE estado='ativo' AND data BETWEEN ? AND ? GROUP BY metodo ORDER BY total DESC`, de, ate);
   const topServicos = all(`SELECT COALESCE(s.nome, t.descricao) nome, COUNT(*) n, ROUND(SUM(t.preco*(1-COALESCE(t.desconto_pct,0)/100.0)),2) valor FROM tratamentos t LEFT JOIN servicos s ON s.id=t.servico_id
     WHERE t.estado='realizado' AND t.data BETWEEN ? AND ? GROUP BY COALESCE(s.nome, t.descricao) ORDER BY n DESC LIMIT 10`, de, ate);
@@ -578,7 +611,7 @@ function listagem(tipo, q) {
         { k: 'medico_nome', h: 'Médico' }, { k: 'user_nome', h: 'Utilizador' }, { k: 'metodo', h: 'Meio de pagamento' }, { k: 'valor', h: 'Valor', t: M }], rows };
     }
     case 'comissoes': {
-      const where = ["d.estado='emitido'", "d.tipo IN ('FT','FR','NC')", 'd.data BETWEEN ? AND ?']; const params = [de, ate];
+      const where = ["d.estado='emitido'", `d.tipo IN ${SQL_FAT}`, 'd.data BETWEEN ? AND ?']; const params = [de, ate];
       if (f('medico_id')) { where.push('COALESCE(t.medico_id, d.medico_id) = ?'); params.push(f('medico_id')); }
       const rows = all(`SELECT d.data, d.numero, p.nome paciente_nome, l.descricao, COALESCE(md.nome,'(sem médico)') medico_nome, COALESCE(md.comissao_pct,0) pct,
         ROUND(CASE WHEN d.tipo='NC' THEN -l.total ELSE l.total END, 2) valor FROM documento_linhas l JOIN documentos d ON d.id=l.documento_id
@@ -620,11 +653,11 @@ function listagem(tipo, q) {
       const rows = [];
       for (const d of docs) {
         const base = { data: d.data, numero: d.numero, paciente_nome: d.paciente_nome, medico_nome: d.medico_nome, user_nome: d.user_nome, estado: d.estado };
-        if (d.tipo === 'FR' || d.tipo === 'RC') {
+        if (d.tipo === 'FR' || d.tipo === 'RC' || d.tipo === 'FS') {
           const pg = get('SELECT COALESCE(SUM(valor),0) v, MAX(metodo) mp FROM pagamentos WHERE recibo_id=?', d.id);
-          rows.push({ ...base, dc: 'C', descricao: 'Pagamento', mp: pg.mp, credito: pg.v, debito: 0 });
+          if (pg.v > 0) rows.push({ ...base, dc: 'C', descricao: 'Pagamento', mp: pg.mp, credito: pg.v, debito: 0 });
         }
-        if (d.tipo === 'FT' || d.tipo === 'FR') rows.push({ ...base, dc: 'D', descricao: TIPOS_DOC[d.tipo], mp: '', debito: d.total, credito: 0 });
+        if (DEBITO.includes(d.tipo)) rows.push({ ...base, dc: 'D', descricao: TIPOS_DOC[d.tipo], mp: '', debito: d.total, credito: 0 });
         if (d.tipo === 'NC') rows.push({ ...base, dc: 'C', descricao: 'Nota de crédito', mp: '', debito: 0, credito: d.total });
       }
       return { titulo: 'Movimentos de conta corrente (global)', cols: [{ k: 'data', h: 'Data', t: D_ }, { k: 'numero', h: 'Documento' }, { k: 'dc', h: 'D/C' },
@@ -742,8 +775,11 @@ async function api(req, res, url) {
         return p;
       }
       if (id && r2_ === 'marcacoes') return all(`${AGENDA_SQL} WHERE m.paciente_id=? ORDER BY m.inicio DESC`, id);
-      if (id && r2_ === 'tratamentos') return all(`SELECT t.*, md.nome medico_nome, s.codigo servico_codigo, d.numero documento_numero FROM tratamentos t
-        LEFT JOIN medicos md ON md.id=t.medico_id LEFT JOIN servicos s ON s.id=t.servico_id LEFT JOIN documentos d ON d.id=t.documento_id
+      if (id && r2_ === 'em-aberto') return emAberto(id);
+      if (id && r2_ === 'tratamentos') return all(`SELECT t.*, md.nome medico_nome, s.codigo servico_codigo, d.numero documento_numero, d.tipo documento_tipo, d.total documento_total,
+        COALESCE((SELECT SUM(valor) FROM pagamentos pg WHERE pg.documento_id=d.id AND pg.estado='ativo'),0) + COALESCE((SELECT SUM(total) FROM documentos n WHERE n.ref_documento_id=d.id AND n.tipo='NC' AND n.estado='emitido'),0) documento_pago,
+        o.numero orcamento_numero, o.estado orcamento_estado FROM tratamentos t
+        LEFT JOIN medicos md ON md.id=t.medico_id LEFT JOIN servicos s ON s.id=t.servico_id LEFT JOIN documentos d ON d.id=t.documento_id LEFT JOIN orcamentos o ON o.id=t.orcamento_id
         WHERE t.paciente_id=? ORDER BY CASE t.estado WHEN 'planeado' THEN 0 ELSE 1 END, t.data DESC, t.id DESC`, id);
       if (id && r2_ === 'notas') return all(`SELECT n.*, md.nome medico_nome, u.nome user_nome FROM notas_clinicas n LEFT JOIN medicos md ON md.id=n.medico_id
         LEFT JOIN users u ON u.id=n.user_id WHERE n.paciente_id=? ORDER BY n.data DESC, n.id DESC`, id);
@@ -840,7 +876,7 @@ async function api(req, res, url) {
       if (m === 'POST' && id && r2_ === 'recusar') { run("UPDATE orcamentos SET estado='recusado' WHERE id=?", id); return orcamentoCompleto(id); }
       if (m === 'POST') return guardarOrcamento(null, body, user);
       if (m === 'PUT' && id) return guardarOrcamento(id, body, user);
-      if (m === 'DELETE' && id) { run('DELETE FROM orcamentos WHERE id=?', id); return { ok: true }; }
+      if (m === 'DELETE' && id) { run('UPDATE tratamentos SET orcamento_id=NULL WHERE orcamento_id=?', id); run('DELETE FROM orcamentos WHERE id=?', id); return { ok: true }; }
       break;
     }
     case 'documentos': {
@@ -850,7 +886,8 @@ async function api(req, res, url) {
         if (q.get('tipo')) { where.push('d.tipo=?'); params.push(q.get('tipo')); }
         if (q.get('de')) { where.push('d.data>=?'); params.push(q.get('de')); }
         if (q.get('ate')) { where.push('d.data<=?'); params.push(q.get('ate')); }
-        return all(`SELECT d.*, p.nome paciente_nome, p.nif paciente_nif FROM documentos d LEFT JOIN pacientes p ON p.id=d.paciente_id
+        return all(`SELECT d.*, p.nome paciente_nome, p.nif paciente_nif, COALESCE((SELECT SUM(valor) FROM pagamentos pg WHERE pg.documento_id=d.id AND pg.estado='ativo'),0)
+          + COALESCE((SELECT SUM(total) FROM documentos n WHERE n.ref_documento_id=d.id AND n.tipo='NC' AND n.estado='emitido'),0) pago FROM documentos d LEFT JOIN pacientes p ON p.id=d.paciente_id
           ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ORDER BY d.data DESC, d.id DESC LIMIT 1000`, ...params);
       }
       if (m === 'GET' && id) return docComLinhas(id);
@@ -915,7 +952,7 @@ async function api(req, res, url) {
         proteses_clinica: get("SELECT COUNT(*) n FROM proteses WHERE fase='recebido'").n,
         stock_alertas: existencias(new URLSearchParams()).filter(p => p.alertas.some(a => a !== 'ideal')).length,
         aniversarios: all("SELECT id, nome, data_nasc FROM pacientes WHERE ativo=1 AND substr(data_nasc,6)=?", d.slice(5)),
-        faturado_hoje: r2(get("SELECT COALESCE(SUM(CASE WHEN tipo='NC' THEN -total ELSE total END),0) s FROM documentos WHERE estado='emitido' AND tipo IN ('FT','FR','NC') AND data=?", d).s),
+        faturado_hoje: r2(get(`SELECT COALESCE(SUM(CASE WHEN tipo='NC' THEN -total ELSE total END),0) s FROM documentos WHERE estado='emitido' AND tipo IN ${SQL_FAT} AND data=?`, d).s),
         recebido_hoje: r2(get("SELECT COALESCE(SUM(valor),0) s FROM pagamentos WHERE estado='ativo' AND data=?", d).s),
         orcamentos_abertos: get("SELECT COUNT(*) n FROM orcamentos WHERE estado='aberto'").n,
         feriado: feriadosAno(new Date().getFullYear()).find(f => f.data === d) || null,

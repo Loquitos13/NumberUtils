@@ -234,42 +234,76 @@ function tabOdonto(el, p) { return odontograma(el, p); }
 // ---------- tratamentos ----------
 async function tabTratamentos(el, p) {
   const trat = await GET(`pacientes/${p.id}/tratamentos`);
+  const st = el._tr ||= { filtro: 'todos', sel: new Set() };
   const liq = t => t.preco * (1 - (t.desconto_pct || 0) / 100) * (1 + (t.iva || 0) / 100);
-  const porFaturar = trat.filter(t => t.estado === 'realizado' && !t.documento_id);
-  el.innerHTML = `<div class="card"><div class="row" style="margin-bottom:10px">
-      <button class="primary" id="tr-new">Novo tratamento</button>
-      <button id="tr-fat" ${porFaturar.length ? '' : 'disabled'}>Faturar realizados (${porFaturar.length})</button>
-      <button id="tr-orc">Orçamento do plano</button>
-      <div class="spacer"></div><span class="muted small">Selecione linhas para ações em lote:</span>
-      <button class="sm" id="tr-done">Marcar realizado</button><button class="sm" id="tr-fsel">Faturar seleção</button></div>
-    ${table(trat, [
-      { h: '', f: t => `<input type="checkbox" data-sel="${t.id}">` },
-      { h: 'Data', f: t => fmtDate(t.data) }, { h: 'Dente', f: t => `<b>${esc(t.dente)}</b>${t.faces ? ' <span class="muted small">' + esc(t.faces) + '</span>' : ''}` },
+  for (const t of trat) t._e = estadoTrat(t).k;
+  st.sel = new Set([...st.sel].filter(id => trat.some(t => t.id === id)));
+  const cont = k => trat.filter(t => t._e === k);
+  const vis = st.filtro === 'todos' ? trat : cont(st.filtro);
+  const soma = l => l.reduce((s, t) => s + liq(t), 0);
+  const selecionados = trat.filter(t => st.sel.has(t.id));
+  el.innerHTML = `<div class="card">
+    <div class="row" style="margin-bottom:10px">
+      <span class="seg st-filtros" role="group" aria-label="Filtrar por estado">
+        <button type="button" data-f="todos" class="${st.filtro === 'todos' ? 'on' : ''}">Todos <span class="muted num">${trat.length}</span></button>
+        ${ESTADOS_TRAT.map(([k, l]) => `<button type="button" data-f="${k}" class="${st.filtro === k ? 'on' : ''}"><span class="st-dot st-${k}"></span>${l} <span class="muted num">${cont(k).length}</span></button>`).join('')}
+      </span>
+      <div class="spacer"></div><button class="primary" id="tr-new">Novo tratamento</button>
+    </div>
+    <div class="tbl-wrap">${table(vis, [
+      { h: '', f: t => `<input type="checkbox" data-sel="${t.id}" ${st.sel.has(t.id) ? 'checked' : ''} aria-label="Selecionar">` },
+      { h: 'Data', f: t => `<span class="num">${fmtDate(t.data)}</span>` }, { h: 'Dente', f: t => `<b class="num">${esc(t.dente || '')}</b>${t.faces ? ' <span class="muted small">' + esc(t.faces) + '</span>' : ''}` },
       { h: 'Tratamento', f: t => esc(t.descricao) }, { h: 'Médico', f: t => esc(t.medico_nome) },
-      { h: 'Estado', f: t => `<span class="badge ${t.estado === 'realizado' ? 'info' : 'warn'}">${esc(t.estado)}</span>` },
-      { h: 'Valor', cls: 'right', f: t => `<span class="${t.estado === 'planeado' ? 'danger' : 'ok'}">${eur(liq(t))}</span>` + (t.desconto_pct ? ` <span class="muted small">-${num(t.desconto_pct)}%</span>` : '') },
-      { h: 'Documento', f: t => t.documento_numero ? `<a href="#" data-doc="${t.documento_id}">${esc(t.documento_numero)}</a>` : (t.estado === 'realizado' ? '<span class="danger small">por faturar</span>' : '') },
+      { h: 'Estado', f: t => t.documento_id ? `<a href="#" data-doc="${t.documento_id}" class="plain">${estadoChip(t)}</a>` : estadoChip(t) },
+      { h: 'Valor', cls: 'right', f: t => eur(liq(t)) + (t.desconto_pct ? ` <span class="muted small">-${num(t.desconto_pct)}%</span>` : '') },
       { h: '', cls: 'right', f: t => `<button class="ghost sm icon" data-ed="${t.id}" aria-label="Editar" title="Editar"><i data-ic="edit"></i></button>${t.documento_id ? '' : `<button class="ghost sm icon" data-del="${t.id}" aria-label="Eliminar" title="Eliminar"><i data-ic="trash"></i></button>`}` },
-    ], { empty: 'Sem tratamentos registados' })}
-    <div class="row end" style="margin-top:10px;gap:24px"><span>Por fazer: <b class="danger">${eur(trat.filter(t => t.estado === 'planeado').reduce((s, t) => s + liq(t), 0))}</b></span>
-      <span>Realizado: <b class="ok">${eur(trat.filter(t => t.estado === 'realizado').reduce((s, t) => s + liq(t), 0))}</b></span></div></div>`;
-  const selIds = () => $$('[data-sel]:checked', el).map(c => Number(c.dataset.sel));
-  $('#tr-new').onclick = () => editTratamento(null, p, () => tabTratamentos(el, p));
-  $$('[data-ed]', el).forEach(b => b.onclick = () => editTratamento(byId(trat, b.dataset.ed), p, () => tabTratamentos(el, p)));
-  $$('[data-del]', el).forEach(b => b.onclick = async () => { if (await confirmDlg('Eliminar este tratamento?', 'Eliminar', true)) { await DEL('t/tratamentos/' + b.dataset.del); tabTratamentos(el, p); } });
+    ], { empty: st.filtro === 'todos' ? 'Sem tratamentos registados' : 'Nenhum tratamento neste estado', rowCls: t => 'row-' + t._e })}</div>
+    <div class="row" style="margin-top:8px">
+      <button class="sm ghost" id="tr-all">${vis.length && vis.every(t => st.sel.has(t.id)) ? 'Desmarcar todos' : 'Selecionar todos'}</button>
+      <div class="spacer"></div>
+      ${ESTADOS_TRAT.filter(([k]) => cont(k).length).map(([k, l]) => `<span class="small"><span class="st-dot st-${k}"></span>${l.split(' · ')[0]} <b class="num">${eur(soma(cont(k)))}</b></span>`).join('<span class="muted">·</span>')}
+    </div>
+  </div>
+  <div class="actionbar ${selecionados.length ? '' : 'hidden'}" role="region" aria-label="Ações sobre a seleção">
+    <span><b class="num">${selecionados.length}</b> selecionado(s) · <b class="num">${eur(soma(selecionados))}</b></span>
+    <div class="spacer"></div>
+    <button data-act="orc">Orçamento</button>
+    <button data-act="feito">Marcar feito</button>
+    <button data-act="PF">Pró-forma</button>
+    <button data-act="FS">Fatura simplificada</button>
+    <button data-act="FT">Fatura</button>
+    <button data-act="FR" class="primary">Fatura-recibo</button>
+    <button data-act="receber">Receber</button>
+  </div>`;
+  const redo = () => tabTratamentos(el, p);
+  $$('.st-filtros [data-f]', el).forEach(b => b.onclick = () => { st.filtro = b.dataset.f; redo(); });
+  $$('[data-sel]', el).forEach(c => c.onchange = () => { c.checked ? st.sel.add(Number(c.dataset.sel)) : st.sel.delete(Number(c.dataset.sel)); redo(); });
+  $('#tr-all', el).onclick = () => { const all = vis.length && vis.every(t => st.sel.has(t.id)); vis.forEach(t => all ? st.sel.delete(t.id) : st.sel.add(t.id)); redo(); };
+  $('#tr-new', el).onclick = () => editTratamento(null, p, redo);
+  $$('[data-ed]', el).forEach(b => b.onclick = () => editTratamento(byId(trat, b.dataset.ed), p, redo));
+  $$('[data-del]', el).forEach(b => b.onclick = async () => { if (await confirmDlg('Eliminar este tratamento?', 'Eliminar', true)) { await DEL('t/tratamentos/' + b.dataset.del); redo(); } });
   $$('[data-doc]', el).forEach(a => a.onclick = e => { e.preventDefault(); verDocumento(Number(a.dataset.doc)); });
-  $('#tr-done').onclick = async () => {
-    const ids = selIds(); if (!ids.length) return toast('Selecione tratamentos', true);
-    for (const id of ids) await PUT('t/tratamentos/' + id, { estado: 'realizado', data: isoDate() });
-    toast('Tratamentos marcados como realizados'); tabTratamentos(el, p);
-  };
-  const faturar = list => emitirDocumento({ paciente: p, tratamentos: list, onDone: () => tabTratamentos(el, p) });
-  $('#tr-fat').onclick = () => faturar(porFaturar);
-  $('#tr-fsel').onclick = () => { const l = trat.filter(t => selIds().includes(t.id) && !t.documento_id); if (!l.length) return toast('Selecione tratamentos por faturar', true); faturar(l); };
-  $('#tr-orc').onclick = () => {
-    const plan = trat.filter(t => t.estado === 'planeado' && !t.orcamento_id);
-    editOrcamento(null, { paciente: p, linhas: plan.map(t => ({ servico_id: t.servico_id, tratamento_id: t.id, descricao: t.descricao, dente: t.dente, qtd: 1, preco: t.preco, desconto_pct: t.desconto_pct, iva: t.iva, iva_id: t.iva_id })) });
-  };
+  const done = () => { st.sel.clear(); redo(); };
+  $$('[data-act]', el).forEach(b => b.onclick = async () => {
+    const a = b.dataset.act;
+    if (a === 'feito') {
+      const l = selecionados.filter(t => t.estado === 'planeado'); if (!l.length) return toast('Nenhum dos selecionados está por fazer', true);
+      for (const t of l) await PUT('t/tratamentos/' + t.id, { estado: 'realizado', data: isoDate() });
+      toast(`${l.length} tratamento(s) marcado(s) como feito`); return done();
+    }
+    if (a === 'orc') {
+      const l = selecionados.filter(t => !t.documento_id); if (!l.length) return toast('Os selecionados já estão faturados', true);
+      return editOrcamento(null, { paciente: p, linhas: l.map(t => ({ servico_id: t.servico_id, tratamento_id: t.id, descricao: t.descricao, dente: t.dente, qtd: 1, preco: t.preco, desconto_pct: t.desconto_pct, iva: t.iva, iva_id: t.iva_id })) });
+    }
+    if (a === 'receber') {
+      const docs = [...new Set(selecionados.filter(t => t._e === 'fat').map(t => t.documento_id))];
+      return emitirRecibo({ paciente: p, documentos: docs.length ? docs : null, onDone: done });
+    }
+    const l = selecionados.filter(t => !t.documento_id);
+    if (!l.length) return toast('Os selecionados já estão faturados. Para pagar, use "Receber".', true);
+    if (l.length < selecionados.length) toast(`${selecionados.length - l.length} já faturado(s) ficaram de fora`);
+    emitirDocumento({ paciente: p, tratamentos: l, tipo: a, onDone: done });
+  });
 }
 
 function editTratamento(t, p, onSaved) {

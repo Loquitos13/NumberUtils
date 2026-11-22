@@ -1,7 +1,20 @@
 'use strict';
 /* Faturação, recibos, conta corrente e orçamentos */
 const METODOS = ['Numerário', 'Multibanco', 'MB Way', 'Transferência', 'Cheque', 'Cartão de crédito'];
-const TIPO_NOME = { FT: 'Fatura', FR: 'Fatura-Recibo', RC: 'Recibo', NC: 'Nota de Crédito' };
+const TIPO_NOME = { FT: 'Fatura', FS: 'Fatura Simplificada', FR: 'Fatura-Recibo', ND: 'Nota de Débito', NC: 'Nota de Crédito', RC: 'Recibo', PF: 'Fatura Pró-forma', OR: 'Orçamento' };
+const TIPOS_EMITIR = [['FR', 'Fatura-Recibo · pago no ato'], ['FT', 'Fatura · paga depois'], ['FS', 'Fatura Simplificada · até 100 €'], ['PF', 'Fatura Pró-forma · sem valor fiscal']];
+const DEBITO = ['FT', 'FS', 'FR', 'ND'];
+function docChip(tipo) { return `<span class="dt dt-${esc(tipo)}" title="${esc(TIPO_NOME[tipo] || tipo)}">${esc(tipo)}</span>`; }
+
+// estado de um tratamento ao longo do circuito: necessário → orçamentado → feito → faturado → pago
+const ESTADOS_TRAT = [['nec', 'Necessário'], ['orc', 'Orçamentado'], ['real', 'Feito · por faturar'], ['fat', 'Faturado · por pagar'], ['pago', 'Pago']];
+function estadoTrat(t) {
+  if (t.documento_id) return (t.documento_pago || 0) >= (t.documento_total || 0) - 0.005 ? { k: 'pago', l: 'Pago', d: t.documento_numero } : { k: 'fat', l: 'Por pagar', d: t.documento_numero };
+  if (t.estado === 'realizado') return { k: 'real', l: 'Feito', d: 'por faturar' };
+  if (t.orcamento_id && t.orcamento_estado !== 'recusado') return { k: 'orc', l: 'Orçamentado', d: t.orcamento_numero };
+  return { k: 'nec', l: 'Necessário', d: '' };
+}
+function estadoChip(t) { const e = estadoTrat(t); return `<span class="st st-${e.k}">${e.l}</span>${e.d ? ` <span class="muted small num">${esc(e.d)}</span>` : ''}`; }
 const AVISO_CERT = 'Documento processado por programa não certificado pela AT. Para efeitos fiscais utilize software de faturação certificado.';
 
 // ---------- editor de linhas (documentos e orçamentos) ----------
@@ -58,9 +71,10 @@ async function emitirDocumento({ paciente, tratamentos = [], linhas, tipo = 'FR'
   if (!linhas.length) linhas.push(ivaFix({ qtd: 1, preco: 0, desconto_pct: ent?.desconto_pct || 0 }));
   let total = 0;
   const medDefault = tratamentos[0]?.medico_id || paciente?.medico_id || App.user.medico_id;
-  modal({ title: tipo === 'NC' ? `Nota de crédito ${ref ? '— ref. ' + ref.numero : ''}` : 'Emitir documento', size: 'lg', body: `<form class="form-grid" onsubmit="return false">
+  const fixo = tipo === 'NC' || tipo === 'ND';
+  modal({ title: fixo ? `${TIPO_NOME[tipo]}${ref ? ' — ref. ' + ref.numero : ''}` : 'Emitir documento', size: 'lg', body: `<form class="form-grid" onsubmit="return false">
     <div class="s2">${pacField('paciente_id', paciente?.id, paciente?.nome)}</div>
-    ${fld('Tipo', sel('tipo', tipo === 'NC' ? optsArr([['NC', 'Nota de Crédito']]) : optsArr([['FR', 'Fatura-Recibo (paga no ato)'], ['FT', 'Fatura (a pagamento)']], tipo)))}
+    ${fld('Tipo de documento', sel('tipo', fixo ? optsArr([[tipo, TIPO_NOME[tipo]]]) : optsArr(TIPOS_EMITIR, tipo)))}
     ${fld('Data', inp('data', isoDate(), 'type="date"'))}
     ${fld('Médico', sel('medico_id', opts(lk.medicos, medDefault, { empty: '—', only: x => x.ativo })), 's2')}
     ${fld('Método de pagamento', sel('metodo', optsArr(METODOS)), 's2" id="ed-met')}
@@ -73,55 +87,67 @@ async function emitirDocumento({ paciente, tratamentos = [], linhas, tipo = 'FR'
     const ls = linhas.filter(l => l.descricao);
     if (!ls.length) throw new Error('Adicione pelo menos uma linha com descrição');
     if (!(total > 0)) throw new Error('O total do documento deve ser superior a zero');
-    if (!await confirmDlg(`Emitir ${TIPO_NOME[f.tipo]} no valor de ${eur(total)}? Depois de emitido só pode ser anulado.`, 'Emitir')) return false;
+    if (f.tipo === 'FS' && total > 100) throw new Error('A fatura simplificada só pode ser usada até 100 € em prestações de serviços (art. 40.º do CIVA). Use fatura-recibo.');
+    if (!await confirmDlg(`Emitir ${TIPO_NOME[f.tipo]} no valor de ${eur(total)}?${f.tipo === 'PF' ? '' : ' Depois de emitido só pode ser anulado.'}`, 'Emitir')) return false;
     const d = await POST('documentos', { ...f, paciente_id: Number(f.paciente_id), medico_id: f.medico_id ? Number(f.medico_id) : null, linhas: ls, ref_documento_id: ref?.id,
       entidade_id: paciente?.entidade_id || null });
-    toast(`${d.tipo_nome} ${d.numero} emitida`);
+    toast(`${d.tipo_nome} ${d.numero} emitido(a)`);
     onDone && onDone(d); verDocumento(d.id);
   } }],
   onOpen: c => {
     const form = $('form', c.body);
     bindPacField(form, 'paciente_id', p => { paciente = p; });
     linhasEditor($('#ed-linhas', c.body), linhas, t => { total = t; });
-    const met = () => $('#ed-met', c.body).classList.toggle('hidden', form.tipo.value !== 'FR');
+    const met = () => $('#ed-met', c.body).classList.toggle('hidden', !['FR', 'FS'].includes(form.tipo.value));
     form.tipo.onchange = met; met();
   } });
 }
 
-// ---------- recibo ----------
-async function emitirRecibo({ paciente, documento, onDone } = {}) {
-  let saldo = paciente ? (await GET(`pacientes/${paciente.id}/contacorrente`)).saldo : 0;
-  const docs = paciente ? (await GET(`pacientes/${paciente.id}/documentos`)).filter(d => d.tipo === 'FT' && d.estado === 'emitido') : [];
-  modal({ title: 'Receber pagamento (recibo)', body: `<form class="form-grid" onsubmit="return false">
+// ---------- recibo (liquida uma ou várias faturas) ----------
+async function emitirRecibo({ paciente, documento, documentos: preSel, onDone } = {}) {
+  const sel0 = new Set((preSel || (documento ? [documento.id] : null) || []).map(Number));
+  modal({ title: 'Receber pagamento', size: 'lg', body: `<form class="form-grid" onsubmit="return false">
     <div class="s4">${pacField('paciente_id', paciente?.id, paciente?.nome)}</div>
-    <div class="s4 muted" id="rc-saldo">${paciente ? 'Saldo em dívida: <b>' + eur(saldo) + '</b>' : ''}</div>
-    ${fld('Valor (€)', inp('valor', documento ? documento.total : (saldo > 0 ? saldo : ''), 'type="number" step="0.01" min="0"'))}
-    ${fld('Método', sel('metodo', optsArr(METODOS)))}${fld('Data', inp('data', isoDate(), 'type="date"'))}
-    ${fld('Referente à fatura', sel('documento_id', `<option value="">Por conta</option>` + docs.map(d => `<option value="${d.id}" ${documento?.id === d.id ? 'selected' : ''}>${esc(d.numero)} — ${eur(d.total)}</option>`).join('')))}
+    <div class="s4" id="rc-docs"></div>
+    ${fld('Valor recebido (€)', inp('valor', '', 'type="number" step="0.01" min="0"'))}
+    ${fld('Meio de pagamento', sel('metodo', optsArr(METODOS)))}${fld('Data', inp('data', isoDate(), 'type="date"'))}<div></div>
     ${fld('Notas', inp('notas', ''), 's4')}</form>`,
   buttons: [{ label: 'Cancelar' }, { label: 'Emitir recibo', cls: 'primary', onClick: async c => {
     const f = readForm($('form', c.body));
     if (!f.paciente_id) throw new Error('Escolha o paciente');
-    const d = await POST('recibos', { ...f, paciente_id: Number(f.paciente_id), documento_id: f.documento_id ? Number(f.documento_id) : null });
+    const ids = $$('[data-rcd]:checked', c.body).map(x => Number(x.dataset.rcd));
+    const d = await POST('recibos', { ...f, paciente_id: Number(f.paciente_id), documento_ids: ids });
     toast(`Recibo ${d.numero} emitido`); onDone && onDone(d); verDocumento(d.id);
   } }],
-  onOpen: c => bindPacField($('form', c.body), 'paciente_id', async p => {
-    saldo = (await GET(`pacientes/${p.id}/contacorrente`)).saldo;
-    $('#rc-saldo', c.body).innerHTML = 'Saldo em dívida: <b>' + eur(saldo) + '</b>';
-    if (saldo > 0) $('input[name=valor]', c.body).value = saldo;
-  }) });
+  onOpen: c => {
+    const form = $('form', c.body);
+    const carregar = async pid => {
+      const docs = await GET(`pacientes/${pid}/em-aberto`);
+      const box = $('#rc-docs', c.body);
+      if (!sel0.size) docs.forEach(d => sel0.add(d.id));
+      box.innerHTML = docs.length ? `<label class="f">Documentos em aberto</label><div class="tbl-wrap" style="max-height:220px">${table(docs, [
+        { h: '', f: d => `<input type="checkbox" data-rcd="${d.id}" ${sel0.has(d.id) ? 'checked' : ''}>` }, { h: 'Documento', f: d => `${docChip(d.tipo)} <b class="num">${esc(d.numero)}</b>` },
+        { h: 'Data', f: d => fmtDate(d.data) }, { h: 'Total', cls: 'right', f: d => eur(d.total) }, { h: 'Em dívida', cls: 'right', f: d => `<b class="danger">${eur(d.em_divida)}</b>` }])}</div>`
+        : '<div class="alert info">Sem faturas em aberto: o valor fica como pagamento por conta (adiantamento).</div>';
+      const soma = () => { form.valor.value = docs.filter(d => $(`[data-rcd="${d.id}"]`, box)?.checked).reduce((s, d) => s + d.em_divida, 0).toFixed(2); };
+      $$('[data-rcd]', box).forEach(x => x.onchange = soma); if (docs.length) soma();
+    };
+    bindPacField(form, 'paciente_id', p => { sel0.clear(); carregar(p.id); });
+    if (paciente) carregar(paciente.id);
+  } });
 }
 
 // ---------- visualizar / imprimir documento ----------
 function docHTML(d) {
   return `<div class="doc"><div class="dh">${cabecalhoClinica()}<div class="right"><h2 style="margin:0">${esc(d.tipo_nome)}</h2><div style="font-size:15px;font-weight:700">${esc(d.numero)}</div>
-    <div>Data: ${fmtDate(d.data)}</div>${d.estado === 'anulado' ? '<div style="color:#c00;font-weight:700;font-size:16px">ANULADO</div>' : ''}</div></div>
+    <div>Data: ${fmtDate(d.data)}</div>${d.ref_numero ? `<div>Ref.: ${esc(d.ref_numero)}</div>` : ''}${d.estado === 'anulado' ? '<div style="color:#c00;font-weight:700;font-size:16px">ANULADO</div>' : ''}</div></div>
+    ${d.tipo === 'PF' ? '<p style="border:1px solid #000;padding:4px 8px;text-align:center;font-weight:700">Este documento não serve de fatura</p>' : ''}
     <p><b>${esc(d.paciente_nome)}</b> (proc. ${esc(d.paciente_numero)})<br>${esc(d.paciente_morada || '')} ${esc(d.paciente_cp || '')} ${esc(d.paciente_localidade || '')}<br>NIF: ${esc(d.paciente_nif || 'Consumidor final')}
     ${d.entidade_nome ? '<br>Entidade: ' + esc(d.entidade_nome) : ''}${d.medico_nome ? '<br>Médico: ' + esc(d.medico_nome) : ''}</p>
     <table><tr><th>Descrição</th><th>Dente</th><th class="right">Qtd</th><th class="right">Preço</th><th class="right">Desc.</th><th class="right">IVA</th><th class="right">Total</th></tr>
     ${d.linhas.map(l => `<tr><td>${esc(l.descricao)}</td><td>${esc(l.dente)}</td><td class="right">${num(l.qtd)}</td><td class="right">${eur(l.preco)}</td><td class="right">${l.desconto_pct ? num(l.desconto_pct) + '%' : ''}</td><td class="right">${num(l.iva)}%</td><td class="right">${eur(l.total)}</td></tr>`).join('')}</table>
     <table class="tot"><tr><td>Base tributável</td><td class="right">${eur(d.total_base)}</td></tr><tr><td>IVA</td><td class="right">${eur(d.total_iva)}</td></tr>
-    <tr><td><b>Total</b></td><td class="right"><b>${eur(d.total)}</b></td></tr></table>
+    <tr><td><b>Total</b></td><td class="right"><b>${eur(d.total)}</b></td></tr>${d.em_divida > 0 ? `<tr><td>Em dívida</td><td class="right">${eur(d.em_divida)}</td></tr>` : ''}</table>
     ${[...new Set(d.linhas.filter(l => l.isencao_cod).map(l => `${l.isencao_cod} — ${l.isencao_motivo || ''}`))].map(m => `<p>Motivo de isenção de IVA: ${esc(m)}</p>`).join('')}
     ${d.pagamentos.length ? `<p>Pagamento: ${d.pagamentos.map(p => `${esc(p.metodo)} ${eur(p.valor)} (${fmtDate(p.data)})`).join(', ')}</p>` : ''}
     ${d.notas ? `<p>${esc(d.notas).replace(/\n/g, '<br>')}</p>` : ''}
@@ -134,10 +160,20 @@ async function verDocumento(id) {
     const motivo = await promptDlg('Anular documento', 'Motivo da anulação'); if (motivo === null) return false;
     await POST(`documentos/${d.id}/anular`, { motivo }); toast('Documento anulado'); render();
   } });
-  if (d.estado === 'emitido' && d.tipo === 'FT') buttons.push({ label: 'Receber', onClick: () => emitirRecibo({ paciente: { id: d.paciente_id, nome: d.paciente_nome }, documento: d, onDone: () => render() }) });
-  if (d.estado === 'emitido' && ['FT', 'FR'].includes(d.tipo)) buttons.push({ label: 'Nota de crédito', onClick: async () => {
+  if (d.em_divida > 0) buttons.push({ label: 'Receber', onClick: () => emitirRecibo({ paciente: { id: d.paciente_id, nome: d.paciente_nome }, documento: d, onDone: () => render() }) });
+  if (d.estado === 'emitido' && DEBITO.includes(d.tipo)) {
+    buttons.push({ label: 'Nota de crédito', onClick: async () => {
+      const p = await GET('t/pacientes/' + d.paciente_id);
+      emitirDocumento({ paciente: p, tipo: 'NC', ref: d, linhas: d.linhas.map(l => ({ ...l, tratamento_id: l.tratamento_id })), onDone: () => render() });
+    } });
+    buttons.push({ label: 'Nota de débito', onClick: async () => {
+      const p = await GET('t/pacientes/' + d.paciente_id);
+      emitirDocumento({ paciente: p, tipo: 'ND', ref: d, linhas: [ivaFix({ qtd: 1, preco: 0, descricao: `Acerto ao documento ${d.numero}` })], onDone: () => render() });
+    } });
+  }
+  if (d.tipo === 'PF' && d.estado === 'emitido') buttons.push({ label: 'Converter em fatura-recibo', onClick: async () => {
     const p = await GET('t/pacientes/' + d.paciente_id);
-    emitirDocumento({ paciente: p, tipo: 'NC', ref: d, linhas: d.linhas.map(l => ({ ...l, tratamento_id: l.tratamento_id })), onDone: () => render() });
+    emitirDocumento({ paciente: p, tipo: 'FR', linhas: d.linhas.map(l => ({ servico_id: l.servico_id, tratamento_id: l.tratamento_id, descricao: l.descricao, dente: l.dente, qtd: l.qtd, preco: l.preco, desconto_pct: l.desconto_pct, iva: l.iva, iva_id: l.iva_id })), onDone: () => render() });
   } });
   buttons.push({ label: 'Paciente', onClick: () => go(`#/paciente/${d.paciente_id}/cc`) });
   buttons.push({ label: 'Imprimir', cls: 'primary', onClick: () => { printHTML(docHTML(d)); return false; } });
@@ -214,7 +250,7 @@ route('faturacao', async (view, [sub = 'documentos']) => {
     body.dataset.f = JSON.stringify(q);
     const docs = await GET(`documentos?de=${q.de}&ate=${q.ate}&tipo=${q.tipo}`);
     const ativos = docs.filter(d => d.estado === 'emitido');
-    const tot = ativos.reduce((s, d) => s + (d.tipo === 'NC' ? -d.total : d.tipo === 'RC' ? 0 : d.total), 0);
+    const tot = ativos.reduce((s, d) => s + (DEBITO.includes(d.tipo) ? d.total : d.tipo === 'NC' ? -d.total : 0), 0);
     $('#fx-list').innerHTML = docsTable(docs) + `<div class="row end" style="margin-top:8px"><span>${docs.length} documento(s) · Total faturado (líq. NC): <b>${eur(tot)}</b></span></div>`;
     bindDocsTable($('#fx-list'));
     $('#fx-csv').onclick = () => downloadCSV('documentos', docs, DOC_COLS);
@@ -223,9 +259,11 @@ route('faturacao', async (view, [sub = 'documentos']) => {
   await load();
 });
 const DOC_COLS = [
-  { h: 'Data', f: d => fmtDate(d.data) }, { h: 'Documento', f: d => `<b>${esc(d.numero)}</b>` }, { h: 'Tipo', f: d => esc(TIPO_NOME[d.tipo]) },
+  { h: 'Data', f: d => fmtDate(d.data) }, { h: 'Documento', f: d => `${docChip(d.tipo)} <b class="num">${esc(d.numero)}</b>`, csv: d => d.numero }, { h: 'Tipo', f: d => esc(TIPO_NOME[d.tipo]) },
   { h: 'Paciente', f: d => esc(d.paciente_nome) }, { h: 'NIF', f: d => esc(d.paciente_nif) }, { h: 'Total', cls: 'right', f: d => eur(d.total), csv: d => String(d.total).replace('.', ',') },
-  { h: 'Estado', f: d => d.estado === 'anulado' ? '<span class="badge danger">anulado</span>' : '<span class="badge ok">emitido</span>', csv: d => d.estado },
+  { h: 'Situação', f: d => d.estado === 'anulado' ? '<span class="st st-anul">Anulado</span>' : !DEBITO.includes(d.tipo) ? '<span class="muted small">—</span>'
+      : (d.pago || 0) >= d.total - 0.005 ? '<span class="st st-pago">Pago</span>' : `<span class="st st-fat">Por pagar</span> <span class="small danger num">${eur(d.total - (d.pago || 0))}</span>`,
+    csv: d => d.estado === 'anulado' ? 'anulado' : !DEBITO.includes(d.tipo) ? '' : (d.pago || 0) >= d.total - 0.005 ? 'pago' : 'por pagar' },
 ];
 function docsTable(docs) { return `<div class="tbl-wrap">${table(docs, DOC_COLS, { rowCls: d => d.estado === 'anulado' ? 'off' : '', onClick: () => {} }).replace('<table', `<table data-docs='${esc(JSON.stringify(docs.map(d => d.id)))}'`)}</div>`; }
 function bindDocsTable(root) {
@@ -257,7 +295,7 @@ route('orcamentos', async (view) => {
 async function tabOrcamentosPac(el, p) {
   const rows = await GET('orcamentos?paciente_id=' + p.id);
   el.innerHTML = `<div class="card"><div class="row end" style="margin-bottom:10px"><button class="primary" id="op-new">Novo orçamento</button></div>${table(rows, ORC_COLS, { onClick: o => verOrcamento(o.id), empty: 'Sem orçamentos' })}</div>`;
-  $('#op-new').onclick = () => editOrcamento(null, { paciente: p });
+  $('#op-new', el).onclick = () => editOrcamento(null, { paciente: p });
 }
 async function editOrcamento(id, { paciente, linhas } = {}) {
   const lk = L();
