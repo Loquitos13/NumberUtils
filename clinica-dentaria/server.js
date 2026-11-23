@@ -7,6 +7,7 @@ const os = require('node:os');
 const crypto = require('node:crypto');
 const D = require('./db');
 const COM = require('./comunicacao');
+const ANAMNESE = require('./anamnese');
 const { all, get, run, tx } = D;
 
 const PORT = Number(process.env.PORT) || 3000;
@@ -79,6 +80,7 @@ const TABLES = {
   ivas: { cols: ['taxa', 'descricao', 'regiao', 'codigo', 'isencao_cod', 'isencao_motivo', 'ativo'], admin: true, order: 'regiao, taxa' },
   bloqueios: { cols: ['medico_id', 'inicio', 'fim', 'tipo', 'motivo'], order: 'inicio DESC' },
   lista_espera: { cols: ['paciente_id', 'medico_id', 'servico_id', 'preferencia', 'notas', 'estado'], order: 'criado_em' },
+  anamnese_perguntas: { cols: ['texto', 'tipo', 'opcoes', 'alerta', 'ordem', 'ativo'], admin: true, order: 'ordem, id' },
   movimentos_stock: { cols: ['produto_id', 'armazem_id', 'tipo', 'qtd', 'lote', 'validade', 'data', 'motivo'], order: 'data DESC, id DESC' },
 };
 
@@ -134,6 +136,7 @@ function crud(method, table, id, query, body, user) {
       if (!o.data) o.data = today();
       o.user_id = user.id;
     }
+    if (table === 'anamnese_perguntas') ANAMNESE.validarPergunta(o);
     const newId = insert(table, o);
     D.log(user.id, `criar ${table}`, `id=${newId}`);
     return get(`SELECT * FROM ${table} WHERE id=?`, newId);
@@ -146,6 +149,7 @@ function crud(method, table, id, query, body, user) {
       if (o.agregado_id && Number(o.agregado_id) === Number(id)) o.agregado_id = null;
       o.alterado_por = user.id; o.alterado_em = agora();
     }
+    if (table === 'anamnese_perguntas') ANAMNESE.validarPergunta(o, get('SELECT * FROM anamnese_perguntas WHERE id=?', id));
     update(table, id, o);
     D.log(user.id, `editar ${table}`, `id=${id}`);
     return get(`SELECT * FROM ${table} WHERE id=?`, id);
@@ -858,6 +862,7 @@ async function api(req, res, url) {
           LEFT JOIN entidades e ON e.id=p.entidade_id LEFT JOIN razoes_visita r ON r.id=p.razao_visita_id WHERE p.id=?`, id);
         if (!p) throw new HttpError(404, 'Paciente não encontrado');
         p.anamnese = get('SELECT * FROM anamnese WHERE paciente_id=?', id) || {};
+        p.alertas_extra = ANAMNESE.alertas(id);
         p.saldo = saldoPaciente(id);
         p.stats = get(`SELECT COUNT(*) total, SUM(CASE WHEN e.categoria='REALIZADAS' THEN 1 ELSE 0 END) realizadas,
           SUM(CASE WHEN e.categoria='FALTAS' THEN 1 ELSE 0 END) faltas, SUM(CASE WHEN e.categoria='INATIVAS' THEN 1 ELSE 0 END) inativas,
@@ -881,6 +886,11 @@ async function api(req, res, url) {
         WHERE t.paciente_id=? ORDER BY CASE t.estado WHEN 'planeado' THEN 0 ELSE 1 END, t.data DESC, t.id DESC`, id);
       if (id && r2_ === 'notas') return all(`SELECT n.*, md.nome medico_nome, u.nome user_nome FROM notas_clinicas n LEFT JOIN medicos md ON md.id=n.medico_id
         LEFT JOIN users u ON u.id=n.user_id WHERE n.paciente_id=? ORDER BY n.data DESC, n.id DESC`, id);
+      if (id && r2_ === 'anamnese-extra') {
+        if (!get('SELECT id FROM pacientes WHERE id=?', id)) throw new HttpError(404, 'Paciente não encontrado');
+        if (m === 'GET') return ANAMNESE.respostas(id);
+        if (m === 'PUT') return ANAMNESE.guardar(id, body, user);
+      }
       if (id && r2_ === 'contacorrente') return contaCorrente(id);
       if (id && r2_ === 'documentos') return all('SELECT * FROM documentos WHERE paciente_id=? ORDER BY data DESC, id DESC', id);
       break;

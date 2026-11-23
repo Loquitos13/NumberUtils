@@ -3,7 +3,7 @@
 const CFG_SECTIONS = [
   ['clinica', 'Empresa / clínica'], ['agenda', 'Agenda e feriados'], ['ivas', 'Tabela de IVA'], ['medicos', 'Médicos'], ['servicos', 'Tratamentos e preços'], ['especialidades', 'Especialidades'],
   ['gabinetes', 'Gabinetes'], ['estados', 'Estados das consultas'], ['razoes', 'Razões 1.ª visita'], ['entidades', 'Entidades / seguros'],
-  ['laboratorios', 'Laboratórios'], ['armazens', 'Armazéns'], ['mensagens', 'E-mail e SMS'], ['sms', 'Modelos de mensagem'], ['utilizadores', 'Utilizadores'], ['registos', 'Registos'], ['backup', 'Cópia de segurança'],
+  ['laboratorios', 'Laboratórios'], ['armazens', 'Armazéns'], ['mensagens', 'E-mail e SMS'], ['sms', 'Modelos de mensagem'], ['anamnese', 'Anamnese'], ['utilizadores', 'Utilizadores'], ['registos', 'Registos'], ['backup', 'Cópia de segurança'],
 ];
 
 // definição genérica: k = coluna, t = tipo
@@ -32,6 +32,10 @@ const CRUD_DEFS = {
   sms: { table: 'sms_modelos', title: 'Modelo de mensagem', cols: [{ k: 'nome', h: 'Nome', req: 1, span: 3 }, { k: 'ativo', h: 'Ativo', t: 'bool' },
     { k: 'assunto', h: 'Assunto (e-mail)', span: 4 },
     { k: 'texto', h: 'Texto (SMS e corpo do e-mail)', t: 'area', span: 4, help: 'Variáveis: {nome} {primeiro_nome} {data} {dia_semana} {hora} {medico} {servico} {gabinete} {clinica} {telefone_clinica} {email_clinica} {morada_clinica}' }] },
+  anamnese: { table: 'anamnese_perguntas', title: 'Pergunta da anamnese', cols: [{ k: 'texto', h: 'Pergunta', req: 1, span: 3 },
+    { k: 'tipo', h: 'Tipo', t: 'opt', opts: [['sn', 'Sim / não'], ['texto', 'Texto'], ['escolha', 'Escolha']] },
+    { k: 'opcoes', h: 'Opções (só para escolha)', span: 2, help: 'Separadas por ";". Ex.: A; B; AB; O' }, { k: 'ordem', h: 'Ordem', t: 'num' },
+    { k: 'alerta', h: 'Alerta clínico', t: 'bool', help: 'A resposta "sim" aparece na faixa vermelha da ficha e da consulta.' }, { k: 'ativo', h: 'Ativa', t: 'bool', help: 'Desativar esconde a pergunta mas guarda as respostas já dadas.' }] },
 };
 
 function cellView(c, r) {
@@ -67,7 +71,7 @@ async function crudSection(body, def) {
     const isNew = !r; r = r || { ativo: 1 };
     const buttons = [];
     if (!isNew) buttons.push({ label: 'Eliminar', cls: 'danger', left: true, onClick: async () => {
-      if (!await confirmDlg(`Eliminar "${r.nome || r.abreviatura}"?`, 'Eliminar', true)) return false;
+      if (!await confirmDlg(`Eliminar "${r.nome || r.abreviatura || r.texto}"?`, 'Eliminar', true)) return false;
       await DEL(`t/${def.table}/${r.id}`); toast('Eliminado'); await refreshLookups(); render();
     } });
     buttons.push({ label: 'Cancelar' }, { label: 'Guardar', cls: 'primary', onClick: async c => {

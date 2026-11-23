@@ -148,7 +148,7 @@ route('consulta', async (view, [id]) => {
   const p = await GET(`pacientes/${m.paciente_id}/resumo`);
   const a = p.anamnese || {};
   const alertas = [a.alergias && `Alergias: ${a.alergias}`, a.anticoagulantes && 'Anticoagulantes', a.cardiaco && 'Doença cardíaca', a.diabetes && 'Diabetes',
-    a.hipertensao && 'Hipertensão', a.gravidez && 'Gravidez', a.hepatite && 'Hepatite'].filter(Boolean);
+    a.hipertensao && 'Hipertensão', a.gravidez && 'Gravidez', a.hepatite && 'Hepatite', ...p.alertas_extra].filter(Boolean);
   const est = n => L().estados.find(e => e.nome === n);
   const concl = est('Concluída') || L().estados.find(e => e.categoria === 'REALIZADAS');
   const fluxo = [est('Presente'), est('Em consulta'), concl].filter(Boolean);

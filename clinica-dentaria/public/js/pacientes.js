@@ -86,7 +86,7 @@ route('paciente', async (view, [id, tab = 'resumo']) => {
   const p = await GET(`pacientes/${id}/resumo`);
   const a = p.anamnese || {};
   const alertas = [a.alergias && `Alergias: ${a.alergias}`, a.anticoagulantes && 'Anticoagulantes', a.cardiaco && 'Doença cardíaca', a.diabetes && 'Diabetes',
-    a.hipertensao && 'Hipertensão', a.gravidez && 'Gravidez', a.hepatite && 'Hepatite'].filter(Boolean);
+    a.hipertensao && 'Hipertensão', a.gravidez && 'Gravidez', a.hepatite && 'Hepatite', ...p.alertas_extra].filter(Boolean);
   view.innerHTML = `<div class="card" style="padding:14px 16px">
     <div class="row">
       <div id="pf-foto" title="Clique para alterar a foto" style="cursor:pointer">${p.foto ? `<img class="avatar" src="${esc(p.foto)}" alt="">`
@@ -158,9 +158,11 @@ async function tabAnamnese(el, p) {
     ${fld('Fumador', sel('fumador', optsArr(['', 'Não', 'Sim', 'Ex-fumador'], a.fumador)))}
     <div class="s3" style="padding-top:20px">${chk('hipertensao', a.hipertensao, 'Hipertensão')}${chk('diabetes', a.diabetes, 'Diabetes')}${chk('cardiaco', a.cardiaco, 'Doença cardíaca')}
       ${chk('anticoagulantes', a.anticoagulantes, 'Anticoagulantes')}${chk('hepatite', a.hepatite, 'Hepatite')}${chk('gravidez', a.gravidez, 'Gravidez')}</div>
+    <div class="s4" id="an-extra"></div>
     <div class="s4 row between"><span class="muted small">${a.atualizado_em ? 'Atualizado em ' + esc(a.atualizado_em) : ''}</span><button class="primary" id="an-save">Guardar anamnese</button></div>
   </form></div>`;
-  $('#an-save').onclick = async () => { await act(() => PUT('anamnese/' + p.id, readForm($('form', el))), 'Anamnese guardada'); render(); };
+  const guardarExtra = await anamneseExtra($('#an-extra', el), p.id);
+  $('#an-save').onclick = async () => { await act(async () => { await PUT('anamnese/' + p.id, readForm($('form', el))); await guardarExtra(); }, 'Anamnese guardada'); render(); };
 }
 
 // ---------- notas clínicas ----------

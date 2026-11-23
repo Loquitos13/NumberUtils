@@ -153,7 +153,17 @@ CREATE TABLE IF NOT EXISTS bloqueios (
 CREATE TABLE IF NOT EXISTS lista_espera (
   id INTEGER PRIMARY KEY, paciente_id INTEGER REFERENCES pacientes(id) ON DELETE CASCADE, medico_id INTEGER,
   servico_id INTEGER, preferencia TEXT, notas TEXT, estado TEXT DEFAULT 'aguarda', criado_em TEXT DEFAULT (datetime('now','localtime')));
+CREATE TABLE IF NOT EXISTS anamnese_perguntas (
+  id INTEGER PRIMARY KEY, texto TEXT NOT NULL, tipo TEXT NOT NULL DEFAULT 'sn', opcoes TEXT,
+  alerta INTEGER DEFAULT 0, ordem INTEGER DEFAULT 0, ativo INTEGER DEFAULT 1);
+CREATE TABLE IF NOT EXISTS anamnese_respostas (
+  paciente_id INTEGER REFERENCES pacientes(id) ON DELETE CASCADE, pergunta_id INTEGER REFERENCES anamnese_perguntas(id),
+  valor TEXT, PRIMARY KEY (paciente_id, pergunta_id));
 `);
+if (db.prepare('SELECT COUNT(*) c FROM anamnese_perguntas').get().c === 0) {
+  const ins = db.prepare("INSERT INTO anamnese_perguntas (texto, tipo, alerta, ordem) VALUES (?, 'sn', 1, ?)");
+  ['Bifosfonatos', 'Problemas de coagulação', 'Próteses articulares', 'Epilepsia'].forEach((t, i) => ins.run(t, (i + 1) * 10));
+}
 
 // migrações simples (colunas novas) para bases de dados criadas por versões anteriores
 const MIGRACOES = [
