@@ -68,3 +68,8 @@ clinica-dentaria/
     ├── app.css
     └── js/  core · agenda · pacientes · financeiro · modulos · config · main
 ```
+
+## Créditos
+
+- **Modelos dentários do odontograma:** imagens renderizadas a partir de [BodyParts3D](https://dbarchive.biosciencedbc.jp/en/bodyparts3d/), © The Database Center for Life Science, licença CC BY 4.0 (os ficheiros OBJ originais indicam CC BY-SA 2.1 JP). Ver `public/img/dentes/LICENCA.txt`.
+- **Tipografia:** IBM Plex Sans e IBM Plex Mono (SIL Open Font License).

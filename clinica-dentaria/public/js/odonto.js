@@ -71,6 +71,7 @@ async function odontograma(el, p, opts = {}) {
       <div class="odonto-legend"><span style="--c:${COR_NEC}">Necessário</span><span style="--c:${COR_FEITO}">Feito / existente</span>
         </div>
       <p class="muted small center" style="margin:4px 0 0">Clique no dente para o selecionar; clique numa face da vista oclusal para a marcar.</p>
+      <p class="od-credito">Modelos dentários: <a href="img/dentes/LICENCA.txt" target="_blank" rel="noopener">BodyParts3D © DBCLS, CC BY 4.0</a></p>
     </section>
     <section class="card od-panel">
       <div class="od-target">${selList.length ? `<span class="muted">Dente${selList.length > 1 ? 's' : ''}</span> <b class="num">${selList.join(', ')}</b>` : '<span class="muted">Nenhum dente selecionado: o tratamento fica para a boca toda.</span><br><span class="small muted">Clique nos dentes para os selecionar; pode escolher vários.</span>'}</div>

@@ -1,0 +1,11 @@
+Imagens dos dentes (vistas vestibular e oclusal)
+
+Renderizadas a partir dos modelos 3D do BodyParts3D:
+"BodyParts3D, © The Database Center for Life Science licensed under CC Attribution 4.0 International"
+https://dbarchive.biosciencedbc.jp/en/bodyparts3d/
+(Os ficheiros OBJ originais indicam a licença anterior: CC Attribution-Share Alike 2.1 Japan.)
+
+Alterações: cada dente foi alinhado pelo eixo longo, iluminado e renderizado em projeção ortográfica
+com material, luz e escala iguais para todos. Os terceiros molares (18, 28, 38, 48) e os dentes decíduos
+reutilizam os modelos mais próximos, reduzidos.
+Estas imagens derivadas são distribuídas nos mesmos termos (CC BY-SA 2.1 JP / CC BY 4.0), com esta atribuição.

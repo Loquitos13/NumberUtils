@@ -378,3 +378,11 @@ table.t tr[class*="row-"]:hover td { background: var(--hover); }
 .tp-i.on { background: var(--blue-wash); color: var(--blue-ink); font-weight: 600; }
 .od-hist li button + button { margin-left: 2px; }
 .od-hist .grow { overflow-wrap: anywhere; line-height: 1.35; }
+
+/* ---------- dentes com imagem real ---------- */
+.dente.real .face { fill: transparent; stroke: rgba(255,255,255,.75); stroke-width: .5; }
+.dente.real .fo > * { stroke: rgba(255,255,255,.75); stroke-width: .5; fill: inherit; }
+.dente.real .face:hover, .dente.real .fo:hover > * { fill: rgba(43,88,196,.18); stroke: var(--blue); stroke-width: 1; }
+.dente.real image { image-rendering: auto; }
+.od-credito { font-size: .72rem; color: var(--muted); text-align: right; margin: 2px 0 0; }
+.od-credito a { color: inherit; }
