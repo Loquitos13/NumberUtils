@@ -422,11 +422,21 @@ function addDays(iso, n) {
   return d.toISOString().slice(0, 10);
 }
 
+// NIF a partir dos 8 primeiros dígitos (acrescenta o dígito de controlo)
 function nifValido(oito) {
   let soma = 0;
   for (let i = 0; i < 8; i++) soma += Number(oito[i]) * (9 - i);
   let c = 11 - (soma % 11); if (c >= 10) c = 0;
   return oito + c;
+}
+
+// lança erro 400 se o NIF (opcional) não for válido
+function validarNif(nif) {
+  if (!nif) return;
+  const s = String(nif).replace(/\s/g, '');
+  const erro = msg => Object.assign(new Error(msg), { status: 400 });
+  if (!/^\d{9}$/.test(s)) throw erro('NIF inválido: deve ter 9 dígitos');
+  if (nifValido(s.slice(0, 8)) !== s) throw erro('NIF inválido: dígito de controlo incorreto');
 }
 
 // Dados fictícios para demonstração
@@ -528,4 +538,4 @@ function log(userId, acao, detalhe) {
   try { run('INSERT INTO logs (user_id, acao, detalhe) VALUES (?,?,?)', userId || null, acao, detalhe || ''); } catch { /* ignore */ }
 }
 
-module.exports = { ISENCOES, db, DB_FILE, DATA_DIR, all, get, run, tx, hashPassword, checkPassword, getConfig, log, addDays };
+module.exports = { ISENCOES, db, DB_FILE, DATA_DIR, all, get, run, tx, hashPassword, checkPassword, getConfig, log, addDays, validarNif };

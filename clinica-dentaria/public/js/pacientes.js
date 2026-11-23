@@ -84,9 +84,6 @@ const FICHA_TABS = [['resumo', 'Resumo'], ['odontograma', 'Odontograma'], ['peri
 
 route('paciente', async (view, [id, tab = 'resumo']) => {
   const p = await GET(`pacientes/${id}/resumo`);
-  const a = p.anamnese || {};
-  const alertas = [a.alergias && `Alergias: ${a.alergias}`, a.anticoagulantes && 'Anticoagulantes', a.cardiaco && 'Doença cardíaca', a.diabetes && 'Diabetes',
-    a.hipertensao && 'Hipertensão', a.gravidez && 'Gravidez', a.hepatite && 'Hepatite', ...p.alertas_extra].filter(Boolean);
   view.innerHTML = `<div class="card" style="padding:14px 16px">
     <div class="row">
       <div id="pf-foto" title="Clique para alterar a foto" style="cursor:pointer">${p.foto ? `<img class="avatar" src="${esc(p.foto)}" alt="">`
@@ -98,7 +95,7 @@ route('paciente', async (view, [id, tab = 'resumo']) => {
       <div class="right"><div class="muted small">Saldo</div><div class="bold ${p.saldo.saldo > 0 ? 'danger' : 'ok'}" style="font-size:1.2rem">${eur(p.saldo.saldo)}</div></div>
       <button id="pf-marc" class="primary">Nova marcação</button><button id="pf-vaga" class="icon" title="Procurar vaga" aria-label="Procurar vaga"><i data-ic="search"></i></button><button id="pf-esp" class="icon" title="Lista de espera" aria-label="Lista de espera"><i data-ic="clock"></i></button><button id="pf-edit">Editar</button><button id="pf-print" class="icon" title="Imprimir ficha" aria-label="Imprimir ficha"><i data-ic="printer"></i></button>
     </div>
-    ${alertas.length ? `<div class="alert danger" style="margin:10px 0 0">${alertas.map(esc).join(' · ')}</div>` : ''}
+    ${alertasHtml(p)}
     ${!p.rgpd_consent ? '<div class="alert" style="margin:10px 0 0">Sem consentimento RGPD registado.</div>' : ''}
   </div>
   <div class="tabs">${FICHA_TABS.map(([k, l]) => `<button class="${k === tab ? 'active' : ''}" data-t="${k}">${l}</button>`).join('')}</div>

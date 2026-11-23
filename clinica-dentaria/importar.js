@@ -1,30 +1,8 @@
 'use strict';
 // Importação de pacientes a partir de CSV (migração do NoviGest / Excel).
 
-// Lê CSV para uma lista de linhas (listas de campos). Separador ';' ou ',' pela 1.ª linha.
-function parseCsv(texto) {
-  texto = texto.replace(/^﻿/, '');
-  const prim = texto.slice(0, texto.indexOf('\n') + 1 || texto.length);
-  const sep = (prim.match(/;/g) || []).length >= (prim.match(/,/g) || []).length ? ';' : ',';
-  const linhas = []; let linha = [], campo = '', aspas = false;
-  for (let i = 0; i < texto.length; i++) {
-    const c = texto[i];
-    if (aspas) {
-      if (c !== '"') campo += c;
-      else if (texto[i + 1] === '"') { campo += '"'; i++; }
-      else aspas = false;
-    } else if (c === '"') aspas = true;
-    else if (c === sep) { linha.push(campo); campo = ''; }
-    else if (c === '\n' || c === '\r') {
-      if (c === '\r' && texto[i + 1] === '\n') i++;
-      linha.push(campo); linhas.push(linha); linha = []; campo = '';
-    } else campo += c;
-  }
-  if (campo || linha.length) { linha.push(campo); linhas.push(linha); }
-  return linhas;
-}
-
 const D = require('./db');
+const { parseCsv } = require('./public/js/csv');
 
 // texto tal como vem do cliente, ou base64 dos bytes do ficheiro (UTF-8 válido, senão Windows-1252)
 function lerCsv(csv) {
@@ -36,6 +14,11 @@ const erro400 = msg => Object.assign(new Error(msg), { status: 400 });
 const SIMULACAO = {};
 
 const NOMES_DATA = { data_nasc: 'Data de nascimento', rgpd_data: 'Data do consentimento RGPD' };
+// colunas com id de outra tabela: o valor tem de existir (senão a FOREIGN KEY abortava a importação toda)
+const FKS = { entidade_id: ['entidades', 'Entidade'], medico_id: ['medicos', 'Médico'], razao_visita_id: ['razoes_visita', 'Razão da visita'], agregado_id: ['pacientes', 'Agregado'] };
+const FLAGS = ['ativo', 'sms_ok', 'email_ok', 'rgpd_consent'];
+const SIM = ['1', 'sim', 's', 'x', 'true'], NAO = ['0', 'não', 'nao', 'n', 'false'];
+const NAO_MAPEAVEIS = ['id', 'criado_em', 'alterado_por', 'alterado_em', 'foto'];
 
 // valida e normaliza uma linha; devolve o motivo do erro ou null
 function validarLinha(o) {
@@ -49,7 +32,15 @@ function validarLinha(o) {
   if (o.numero && !/^\d+$/.test(o.numero)) return `N.º de processo inválido: ${o.numero}`;
   if (o.nif) {
     o.nif = o.nif.replace(/\s/g, '');
-    try { require('./server').validarNif(o.nif); } catch (e) { return e.message; } // require tardio: server.js também carrega este ficheiro
+    try { D.validarNif(o.nif); } catch (e) { return e.message; }
+  }
+  for (const [k, [tabela, nome]] of Object.entries(FKS)) if (o[k]) {
+    if (!/^\d+$/.test(o[k]) || !D.get(`SELECT 1 FROM ${tabela} WHERE id=?`, Number(o[k]))) return `${nome} inexistente: ${o[k]}`;
+    o[k] = Number(o[k]);
+  }
+  for (const k of FLAGS) if (o[k]) {
+    const v = o[k].toLowerCase();
+    if (SIM.includes(v)) o[k] = 1; else if (NAO.includes(v)) o[k] = 0; else return `Valor inválido (sim/não): ${o[k]}`;
   }
   return null;
 }
@@ -58,11 +49,12 @@ function validarLinha(o) {
 function importarPacientes(body, user) {
   if (typeof body.csv !== 'string' || !body.csv) throw erro400('Falta o ficheiro CSV');
   const mapa = Array.isArray(body.mapa) ? body.mapa : [];
-  const cols = D.all('PRAGMA table_info(pacientes)').map(c => c.name).filter(c => !['id', 'criado_em', 'alterado_por', 'alterado_em'].includes(c));
+  const cols = D.all('PRAGMA table_info(pacientes)').map(c => c.name).filter(c => !NAO_MAPEAVEIS.includes(c));
   const fora = mapa.filter(c => c && !cols.includes(c));
   if (fora.length) throw erro400('Campo desconhecido: ' + fora.join(', '));
   if (!mapa.includes('nome')) throw erro400('Associe uma coluna ao nome');
-  const [, ...dados] = parseCsv(lerCsv(body.csv));
+  let dados;
+  try { [, ...dados] = parseCsv(lerCsv(body.csv)); } catch (e) { throw erro400(e.message); }
   const iNum = mapa.indexOf('numero');
   const alterado_em = D.get("SELECT strftime('%Y-%m-%d %H:%M','now','localtime') t").t;
   const out = { criados: 0, ignorados: 0, erros: [] };
@@ -77,7 +69,9 @@ function importarPacientes(body, user) {
         const motivo = validarLinha(o);
         if (motivo) return out.erros.push({ linha: n + 2, motivo }); // n.º da linha como no Excel (1 = cabeçalho)
         // as linhas já inseridas contam (estamos dentro da transação): repetidos no próprio ficheiro também são ignorados
-        if ((o.numero && D.get('SELECT 1 FROM pacientes WHERE numero=?', Number(o.numero))) || (o.nif && D.get('SELECT 1 FROM pacientes WHERE nif=?', o.nif))) return out.ignorados++;
+        // shortcut: sem n.º, NIF nem data de nascimento não há como reconhecer o paciente e a linha é criada de novo; limpar à mão se reimportar
+        if ((o.numero && D.get('SELECT 1 FROM pacientes WHERE numero=?', Number(o.numero))) || (o.nif && D.get('SELECT 1 FROM pacientes WHERE nif=?', o.nif))
+          || (!o.numero && !o.nif && o.data_nasc && D.get('SELECT 1 FROM pacientes WHERE nome=? AND data_nasc=?', o.nome, o.data_nasc))) return out.ignorados++;
         o.numero = o.numero ? Number(o.numero) : proximo++;
         Object.assign(o, { alterado_por: user.id, alterado_em });
         D.run(`INSERT INTO pacientes (${Object.keys(o).join(',')}) VALUES (${Object.keys(o).map(() => '?').join(',')})`, ...Object.values(o));
@@ -90,4 +84,4 @@ function importarPacientes(body, user) {
   return out;
 }
 
-module.exports = { parseCsv, importarPacientes };
+module.exports = { importarPacientes };

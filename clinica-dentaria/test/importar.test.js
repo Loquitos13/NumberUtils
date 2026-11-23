@@ -10,7 +10,7 @@ const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'clinica-teste-'));
 process.env.DATA_DIR = dir;
 process.env.ADMIN_PASSWORD = 'segredo-de-teste';
 const { server } = require('../server');
-const { parseCsv } = require('../importar');
+const { parseCsv } = require('../public/js/csv');
 
 let base, cookie = '';
 async function api(metodo, url, corpo, ck = cookie) {
@@ -90,4 +90,42 @@ test('parser: aspas, aspas duplicadas e quebras de linha dentro de aspas', () =>
 
 test('parser: ignora o BOM', () => {
   assert.deepEqual(parseCsv('﻿Nome;NIF\nAna;1'), [['Nome', 'NIF'], ['Ana', '1']]);
+});
+
+test('parser: aspas a meio do campo são texto, não abrem um campo entre aspas', () => {
+  assert.deepEqual(parseCsv('Nome;Notas\nAna "Mimi;x\nRui;y\n'), [['Nome', 'Notas'], ['Ana "Mimi', 'x'], ['Rui', 'y']]);
+});
+
+test('parser: aspas por fechar no fim do ficheiro dão erro', () => {
+  assert.throws(() => parseCsv('Nome;Notas\n"Ana;x\nRui;y\n'), /aspas por fechar/);
+});
+
+test('parser: separadores dentro de aspas no cabeçalho não contam para detetar o separador', () => {
+  assert.deepEqual(parseCsv('"Apelido; Nome; Outro",NIF\nSilva,123\n'), [['Apelido; Nome; Outro', 'NIF'], ['Silva', '123']]);
+});
+
+test('ficheiro com aspas por fechar é recusado com 400', async () => {
+  const r = await api('POST', 'importar/pacientes', { csv: 'Nome;Notas\n"Ana Aspas;x\nRui;y\n', mapa: ['nome', 'notas'], simular: true });
+  assert.deepEqual(r, { status: 400, body: { erro: 'CSV inválido: aspas por fechar' } });
+});
+
+test('ids de tabelas e opções sim/não são validados por linha, sem abortar a importação', async () => {
+  const csv = 'Nome;Entidade;Ativo;SMS\nFk Acme;ACME;;\nFk Zero;9999;;\nFk Flag;;talvez;\nFk Boa;1;não;sim\n';
+  assert.deepEqual(await importar(csv, ['nome', 'entidade_id', 'ativo', 'sms_ok'], false), { criados: 1, ignorados: 0, erros: [
+    { linha: 2, motivo: 'Entidade inexistente: ACME' },
+    { linha: 3, motivo: 'Entidade inexistente: 9999' },
+    { linha: 4, motivo: 'Valor inválido (sim/não): talvez' },
+  ] });
+  const [p] = await ok('GET', 'pacientes?q=Fk&ativos=0');
+  assert.deepEqual([p.nome, p.ativo], ['Fk Boa', 0]);
+  const t = await ok('GET', 't/pacientes/' + p.id);
+  assert.deepEqual([t.entidade_id, t.sms_ok], [1, 1]);
+  const mau = await api('POST', 'importar/pacientes', { csv: 'Nome;Foto\nA;x\n', mapa: ['nome', 'foto'], simular: true });
+  assert.deepEqual(mau, { status: 400, body: { erro: 'Campo desconhecido: foto' } });
+});
+
+test('sem n.º nem NIF, um paciente com o mesmo nome e data de nascimento não é duplicado', async () => {
+  const csv = 'Nome;Nasc\nSem Ids;01/01/1970\nSem Ids;1970-01-01\nSem Ids;02/01/1970\n';
+  assert.deepEqual(await importar(csv, ['nome', 'data_nasc'], false), { criados: 2, ignorados: 1, erros: [] });
+  assert.deepEqual(await importar(csv, ['nome', 'data_nasc'], true), { criados: 0, ignorados: 3, erros: [] });
 });
