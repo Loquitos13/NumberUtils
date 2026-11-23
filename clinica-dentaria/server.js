@@ -295,6 +295,7 @@ function criarDocumento(body, user) {
   if (body.ref_documento_id) {
     const ref = get('SELECT * FROM documentos WHERE id=?', body.ref_documento_id);
     if (!ref || ref.estado !== 'emitido' || !DEBITO.includes(ref.tipo)) throw new HttpError(400, 'Documento de origem inválido ou anulado');
+    if (Number(ref.paciente_id) !== Number(body.paciente_id)) throw new HttpError(400, 'O documento de origem é de outro paciente');
   }
   if (!body.paciente_id) throw new HttpError(400, 'Escolha o paciente');
   const linhas = Array.isArray(body.linhas) ? body.linhas.filter(l => l.descricao) : [];
@@ -312,6 +313,11 @@ function criarDocumento(body, user) {
     tb = r2(tb); ti = r2(ti); const total = r2(tb + ti);
     if (tipo === 'FS' && total > LIMITE_FS) throw new HttpError(400, `A fatura simplificada só pode ser usada até ${LIMITE_FS} € em prestações de serviços (art. 40.º do CIVA). Use fatura-recibo.`);
     if (!(total > 0)) throw new HttpError(400, 'O total do documento deve ser superior a zero');
+    if (tipo === 'NC') {
+      const ref = get('SELECT total FROM documentos WHERE id=?', body.ref_documento_id);
+      const resta = r2(ref.total - get("SELECT COALESCE(SUM(total),0) v FROM documentos WHERE ref_documento_id=? AND tipo='NC' AND estado='emitido'", body.ref_documento_id).v);
+      if (total > resta + 0.004) throw new HttpError(400, `A nota de crédito não pode exceder o valor por creditar do documento de origem (${resta.toFixed(2)} €)`);
+    }
     const numero = proximoNumero(tipo, data);
     const docId = insert('documentos', {
       tipo, numero, paciente_id: body.paciente_id, entidade_id: body.entidade_id || null, medico_id: body.medico_id || null,
@@ -378,6 +384,9 @@ function anularDocumento(id, user, motivo) {
   const d = get('SELECT * FROM documentos WHERE id=?', id);
   if (!d) throw new HttpError(404, 'Documento não encontrado');
   if (d.estado === 'anulado') throw new HttpError(400, 'Documento já anulado');
+  const dep = get("SELECT numero FROM documentos WHERE ref_documento_id=? AND estado='emitido' AND tipo<>'RC'", id)
+    || get("SELECT d.numero FROM pagamentos pg JOIN documentos d ON d.id=pg.recibo_id WHERE pg.documento_id=? AND pg.recibo_id<>? AND pg.estado='ativo'", id, id);
+  if (dep) throw new HttpError(409, `Anule primeiro o documento ${dep.numero}, que depende deste`);
   tx(() => {
     run("UPDATE documentos SET estado='anulado', notas=COALESCE(notas,'') || ? WHERE id=?", `\nAnulado: ${motivo || ''}`, id);
     run("UPDATE pagamentos SET estado='anulado' WHERE recibo_id=?", id);
@@ -410,6 +419,15 @@ function saldoPaciente(pid) {
   return { faturado: r2(deb), creditos: r2(nc), pago: r2(pag), saldo: r2(deb - nc - pag) };
 }
 
+// saldo de todos os pacientes numa só consulta (mesmas contas que saldoPaciente)
+function saldosPacientes() {
+  return all(`SELECT p.id, p.numero, p.nome, p.telemovel, COALESCE(d.deb,0) deb, COALESCE(d.nc,0) nc, COALESCE(g.pag,0) pag FROM pacientes p
+    LEFT JOIN (SELECT paciente_id, SUM(CASE WHEN tipo IN ${SQL_DEB} THEN total ELSE 0 END) deb, SUM(CASE WHEN tipo='NC' THEN total ELSE 0 END) nc
+      FROM documentos WHERE estado='emitido' GROUP BY paciente_id) d ON d.paciente_id=p.id
+    LEFT JOIN (SELECT paciente_id, SUM(valor) pag FROM pagamentos WHERE estado='ativo' GROUP BY paciente_id) g ON g.paciente_id=p.id
+    ORDER BY p.nome`).map(({ deb, nc, pag, ...p }) => ({ ...p, faturado: r2(deb), creditos: r2(nc), pago: r2(pag), saldo: r2(deb - nc - pag) }));
+}
+
 function contaCorrente(pid) {
   const mov = [];
   for (const d of all("SELECT * FROM documentos WHERE paciente_id=? ORDER BY data, id", pid)) {
@@ -436,6 +454,7 @@ function guardarOrcamento(id, body, user) {
     const o = pick(body, ['paciente_id', 'medico_id', 'data', 'validade', 'estado', 'notas']);
     o.total = r2(total);
     if (!o.data) o.data = today();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(o.data) || isNaN(new Date(o.data))) throw new HttpError(400, 'Data inválida');
     if (!o.validade) o.validade = D.addDays(o.data, Number(D.getConfig().validade_orcamento_dias) || 90);
     if (id) { update('orcamentos', id, o); run('DELETE FROM orcamento_linhas WHERE orcamento_id=?', id); }
     else { o.numero = proximoNumero('OR', o.data); id = insert('orcamentos', o); }
@@ -523,7 +542,7 @@ function estatisticas(q) {
   const faltas = all(`SELECT COUNT(*) n FROM marcacoes m JOIN estados e ON e.id=m.estado_id WHERE e.categoria='FALTAS' AND m.inicio BETWEEN ? AND ?`, de, ateFim)[0].n;
   const faturado = r2(fatMes.reduce((a, b) => a + b.total, 0));
   const recebido = r2(recebMetodo.reduce((a, b) => a + b.total, 0));
-  const emDivida = r2(all('SELECT id FROM pacientes').reduce((a, p) => { const s = saldoPaciente(p.id).saldo; return a + (s > 0 ? s : 0); }, 0));
+  const emDivida = r2(saldosPacientes().reduce((a, p) => a + (p.saldo > 0 ? p.saldo : 0), 0));
   return { de, ate, porEstado, porMedico, fatMedico, fatMes, recebMetodo, topServicos, razoes,
     kpi: { marcacoes: totalMarc, faltas, taxaFaltas: totalMarc ? r2(faltas * 100 / totalMarc) : 0, novos, faturado, recebido, emDivida } };
 }
@@ -613,6 +632,7 @@ function backup(res) {
   const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-');
   res.writeHead(200, { 'Content-Type': 'application/octet-stream', 'Content-Disposition': `attachment; filename="clinica-backup-${stamp}.db"` });
   const s = fs.createReadStream(tmp);
+  s.on('error', () => res.destroy());
   s.pipe(res);
   s.on('close', () => fs.unlink(tmp, () => {}));
 }
@@ -707,7 +727,7 @@ function listagem(tipo, q) {
         { k: 'descricao', h: 'Descrição' }, { k: 'valor', h: 'Faturado', t: M }, { k: 'pct', h: '%', t: N }, { k: 'comissao', h: 'Comissão', t: M }], rows };
     }
     case 'pendentes': {
-      const rows = all('SELECT id, numero, nome, telemovel FROM pacientes ORDER BY nome').map(p => ({ ...p, ...saldoPaciente(p.id) })).filter(p => p.saldo > 0.004);
+      const rows = saldosPacientes().filter(p => p.saldo > 0.004);
       return { titulo: 'Pacientes com valores pendentes', cols: [{ k: 'numero', h: 'N.º' }, { k: 'nome', h: 'Paciente' }, { k: 'telemovel', h: 'Telemóvel' },
         { k: 'faturado', h: 'Faturado', t: M }, { k: 'pago', h: 'Pago', t: M }, { k: 'saldo', h: 'Em dívida', t: M }], rows };
     }
@@ -907,9 +927,10 @@ async function api(req, res, url) {
       break;
     }
     case 'anamnese': {
+      if (!id) throw new HttpError(400, 'Indique o paciente');
       if (m === 'GET') return get('SELECT * FROM anamnese WHERE paciente_id=?', id) || {};
       const o = pick(body, ['alergias', 'doencas', 'medicacao', 'fumador', 'gravidez', 'hipertensao', 'diabetes', 'cardiaco', 'anticoagulantes', 'hepatite', 'observacoes']);
-      o.atualizado_em = new Date().toISOString().slice(0, 16).replace('T', ' ');
+      o.atualizado_em = agora();
       const keys = Object.keys(o);
       run(`INSERT INTO anamnese (paciente_id, ${keys.join(',')}) VALUES (?, ${keys.map(() => '?').join(',')})
         ON CONFLICT(paciente_id) DO UPDATE SET ${keys.map(k => `${k}=excluded.${k}`).join(',')}`, id, ...keys.map(k => o[k]));
@@ -921,10 +942,17 @@ async function api(req, res, url) {
       if (m === 'POST') {
         if (!body.texto) throw new HttpError(400, 'Escreva a nota');
         const nid = insert('notas_clinicas', { paciente_id: body.paciente_id, marcacao_id: body.marcacao_id || null, medico_id: body.medico_id || user.medico_id || null, user_id: user.id,
-          data: body.data || new Date().toISOString().slice(0, 16).replace('T', ' '), texto: body.texto });
+          data: body.data || agora(), texto: body.texto });
+        D.log(user.id, 'criar nota clínica', `paciente=${body.paciente_id} nota=${nid}`);
         return { id: nid };
       }
-      if (m === 'DELETE' && id) { run('DELETE FROM notas_clinicas WHERE id=?', id); return { ok: true }; }
+      if (m === 'DELETE' && id) {
+        requireAdmin(user);
+        const n = get('SELECT paciente_id FROM notas_clinicas WHERE id=?', id);
+        run('DELETE FROM notas_clinicas WHERE id=?', id);
+        D.log(user.id, 'apagar nota clínica', `paciente=${n?.paciente_id} nota=${id}`);
+        return { ok: true };
+      }
       break;
     }
     case 'agenda': {
@@ -1027,7 +1055,7 @@ async function api(req, res, url) {
     }
     case 'recibos': if (m === 'POST') return criarRecibo(body, user); break;
     case 'devedores':
-      return all('SELECT id, numero, nome, telemovel FROM pacientes ORDER BY nome').map(p => ({ ...p, ...saldoPaciente(p.id) })).filter(p => Math.abs(p.saldo) > 0.004);
+      return saldosPacientes().filter(p => Math.abs(p.saldo) > 0.004);
 
     case 'stocks': {
       if (r1 === 'existencias') return existencias(q);
@@ -1108,7 +1136,7 @@ async function api(req, res, url) {
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8',
   '.svg': 'image/svg+xml', '.woff2': 'font/woff2', '.webp': 'image/webp', '.txt': 'text/plain; charset=utf-8', '.png': 'image/png', '.ico': 'image/x-icon', '.json': 'application/json' };
 function serveStatic(req, res, url) {
-  let p = decodeURIComponent(url.pathname);
+  let p; try { p = decodeURIComponent(url.pathname); } catch { throw new HttpError(400, 'Endereço inválido'); }
   if (p === '/') p = '/index.html';
   const file = path.normalize(path.join(PUBLIC, p));
   if (!file.startsWith(PUBLIC)) { res.writeHead(403); return res.end(); }
@@ -1120,13 +1148,13 @@ function serveStatic(req, res, url) {
 }
 
 const server = http.createServer(async (req, res) => {
-  const url = new URL(req.url, 'http://localhost');
-  if (!url.pathname.startsWith('/api/')) return serveStatic(req, res, url);
   try {
+    const url = new URL(req.url, 'http://localhost');
+    if (!url.pathname.startsWith('/api/')) return serveStatic(req, res, url);
     const out = await api(req, res, url);
     if (out !== undefined && !res.headersSent) send(res, 200, out);
   } catch (e) {
-    const status = e.status || 500;
+    const status = e.status || (e.code === 'ERR_INVALID_URL' ? 400 : 500);
     if (status === 500) console.error(e);
     if (!res.headersSent) send(res, status, { erro: status === 500 ? 'Erro interno: ' + e.message : e.message });
   }

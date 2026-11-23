@@ -120,16 +120,17 @@ async function enviarSMS(cfg, { para, texto }) {
   } else if (prov === 'http') {
     if (!cfg.sms_url) throw new Error('Indique o URL da API de SMS');
     const sub = (tpl, enc) => String(tpl || '').replace(/\{(para|numero|texto|remetente|token)\}/g, (m, k) => {
-      const v = { para: to, numero: to.replace(/^\+/, ''), texto, remetente: cfg.sms_remetente || '', token: cfg.sms_token || '' }[k];
-      return enc ? encodeURIComponent(v) : v;
+      const v = String({ para: to, numero: to.replace(/^\+/, ''), texto, remetente: cfg.sms_remetente || '', token: cfg.sms_token || '' }[k]);
+      return enc === 'json' ? JSON.stringify(v).slice(1, -1) : enc ? encodeURIComponent(v) : v;
     });
     const metodo = (cfg.sms_metodo || 'POST').toUpperCase();
     const headers = {};
     if (cfg.sms_token && cfg.sms_auth_header) headers[cfg.sms_auth_header] = (cfg.sms_auth_prefixo ? cfg.sms_auth_prefixo + ' ' : '') + cfg.sms_token;
     let body;
     if (metodo !== 'GET' && cfg.sms_corpo) {
-      body = sub(cfg.sms_corpo, false);
-      try { JSON.parse(body); headers['Content-Type'] = 'application/json'; } catch { headers['Content-Type'] = 'application/x-www-form-urlencoded'; }
+      // modelo JSON: os valores entram escapados (aspas e mudanças de linha não partem o JSON)
+      body = sub(cfg.sms_corpo, 'json');
+      try { JSON.parse(body); headers['Content-Type'] = 'application/json'; } catch { body = sub(cfg.sms_corpo, false); headers['Content-Type'] = 'application/x-www-form-urlencoded'; }
     }
     r = await fetch(sub(cfg.sms_url, true), { method: metodo, headers, body });
   } else throw new Error('Fornecedor de SMS desconhecido');

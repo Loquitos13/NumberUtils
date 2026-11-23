@@ -7,7 +7,7 @@ const crypto = require('node:crypto');
 process.removeAllListeners('warning'); // silencia o aviso "experimental" do sqlite
 const { DatabaseSync } = require('node:sqlite');
 
-const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
+const DATA_DIR = path.resolve(process.env.DATA_DIR || path.join(__dirname, 'data'));
 fs.mkdirSync(DATA_DIR, { recursive: true });
 const DB_FILE = path.join(DATA_DIR, 'clinica.db');
 
@@ -142,6 +142,8 @@ CREATE TABLE IF NOT EXISTS logs (
 
 db.exec(SCHEMA);
 
+// as perguntas iniciais só entram quando a tabela é criada (se o administrador as apagar, não voltam)
+const anamneseNova = !db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='anamnese_perguntas'").get();
 // migrações simples para bases de dados criadas por versões anteriores
 db.exec(`
 CREATE TABLE IF NOT EXISTS ivas (
@@ -166,7 +168,7 @@ CREATE TABLE IF NOT EXISTS perio_exames (
   id INTEGER PRIMARY KEY, paciente_id INTEGER REFERENCES pacientes(id) ON DELETE CASCADE, data TEXT NOT NULL,
   medico_id INTEGER, dados TEXT NOT NULL, notas TEXT, criado_em TEXT DEFAULT (datetime('now','localtime')));
 `);
-if (db.prepare('SELECT COUNT(*) c FROM anamnese_perguntas').get().c === 0) {
+if (anamneseNova) {
   const ins = db.prepare("INSERT INTO anamnese_perguntas (texto, tipo, alerta, ordem) VALUES (?, 'sn', 1, ?)");
   ['Bifosfonatos', 'Problemas de coagulação', 'Próteses articulares', 'Epilepsia'].forEach((t, i) => ins.run(t, (i + 1) * 10));
 }
@@ -220,6 +222,10 @@ CREATE INDEX IF NOT EXISTS idx_marc_pac ON marcacoes(paciente_id);
 CREATE INDEX IF NOT EXISTS idx_notas_pac ON notas_clinicas(paciente_id);
 CREATE INDEX IF NOT EXISTS idx_cond_pac ON dentes_condicoes(paciente_id);
 CREATE INDEX IF NOT EXISTS idx_docl_doc ON documento_linhas(documento_id);
+CREATE INDEX IF NOT EXISTS idx_pac_num ON pacientes(numero);
+CREATE INDEX IF NOT EXISTS idx_pac_nif ON pacientes(nif);
+CREATE INDEX IF NOT EXISTS idx_anx_pac ON anexos(paciente_id);
+CREATE INDEX IF NOT EXISTS idx_perio_pac ON perio_exames(paciente_id);
 `);
 
 // tabela de IVA (Portugal continental e regiões autónomas) com motivos de isenção
