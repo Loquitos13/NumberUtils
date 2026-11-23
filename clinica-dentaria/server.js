@@ -8,6 +8,7 @@ const crypto = require('node:crypto');
 const D = require('./db');
 const COM = require('./comunicacao');
 const ANAMNESE = require('./anamnese');
+const ANX = require('./anexos');
 const { all, get, run, tx } = D;
 
 const PORT = Number(process.env.PORT) || 3000;
@@ -81,6 +82,7 @@ const TABLES = {
   bloqueios: { cols: ['medico_id', 'inicio', 'fim', 'tipo', 'motivo'], order: 'inicio DESC' },
   lista_espera: { cols: ['paciente_id', 'medico_id', 'servico_id', 'preferencia', 'notas', 'estado'], order: 'criado_em' },
   anamnese_perguntas: { cols: ['texto', 'tipo', 'opcoes', 'alerta', 'ordem', 'ativo'], admin: true, order: 'ordem, id' },
+  anexos: { cols: ['categoria', 'descricao', 'dente', 'data'], filtros: ['paciente_id'], order: 'data DESC, id DESC' },
   movimentos_stock: { cols: ['produto_id', 'armazem_id', 'tipo', 'qtd', 'lote', 'validade', 'data', 'motivo'], order: 'data DESC, id DESC' },
 };
 
@@ -113,7 +115,7 @@ function crud(method, table, id, query, body, user) {
   if (method === 'GET') {
     if (id) { const row = get(`SELECT * FROM ${table} WHERE id=?`, id); if (!row) throw new HttpError(404, 'Não encontrado'); return row; }
     const where = []; const params = [];
-    for (const c of [...def.cols, 'id']) if (query.has(c)) { where.push(`${c} = ?`); params.push(query.get(c)); }
+    for (const c of [...def.cols, ...(def.filtros || []), 'id']) if (query.has(c)) { where.push(`${c} = ?`); params.push(query.get(c)); }
     return all(`SELECT * FROM ${table} ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ORDER BY ${def.order}`, ...params);
   }
   if (def.admin) requireAdmin(user);
@@ -123,6 +125,7 @@ function crud(method, table, id, query, body, user) {
     const soNotas = method === 'PUT' && Object.keys(pick(body, TABLES.tratamentos.cols)).every(k => ['notas', 'marcacao_id'].includes(k));
     if (t && !soNotas) throw new HttpError(409, `Tratamento já faturado (${t.numero}). Para corrigir, emita uma nota de crédito.`);
   }
+  if (table === 'anexos') ANX.antesCrud(method, id, pick(body, def.cols));
   if (method === 'POST') {
     const o = pick(body, def.cols);
     if (table === 'pacientes') {
@@ -757,7 +760,8 @@ async function api(req, res, url) {
   const parts = url.pathname.split('/').filter(Boolean).slice(1); // remove 'api'
   const q = url.searchParams;
   const m = req.method;
-  const body = ['POST', 'PUT'].includes(m) ? await readBody(req) : {};
+  const binario = m === 'POST' && parts[0] === 'pacientes' && parts[2] === 'anexos'; // upload: corpo binário, lido em anexos.js
+  const body = ['POST', 'PUT'].includes(m) && !binario ? await readBody(req) : {};
 
   if (parts[0] === 'login' && m === 'POST') {
     const ip = req.socket.remoteAddress || '';
@@ -877,6 +881,7 @@ async function api(req, res, url) {
         p.ultima = get(`${AGENDA_SQL} WHERE m.paciente_id=? AND m.inicio < ? ORDER BY m.inicio DESC LIMIT 1`, id, today());
         return p;
       }
+      if (id && binario) return ANX.carregar(req, id, q, user);
       if (id && r2_ === 'marcacoes') return all(`${AGENDA_SQL} WHERE m.paciente_id=? ORDER BY m.inicio DESC`, id);
       if (id && r2_ === 'em-aberto') return emAberto(id);
       if (id && r2_ === 'tratamentos') return all(`SELECT t.*, md.nome medico_nome, s.codigo servico_codigo, d.numero documento_numero, d.tipo documento_tipo, d.total documento_total,
@@ -1084,6 +1089,7 @@ async function api(req, res, url) {
         feriado: feriadosAno(new Date().getFullYear()).find(f => f.data === d) || null,
       };
     }
+    case 'anexos': if (m === 'GET' && id && r2_ === 'ficheiro') { ANX.servir(res, id); return undefined; } break;
     case 'logs': requireAdmin(user);
       return all('SELECT l.*, u.nome user_nome FROM logs l LEFT JOIN users u ON u.id=l.user_id ORDER BY l.id DESC LIMIT 1000');
     case 'backup': requireAdmin(user); backup(res); D.log(user.id, 'backup', ''); return undefined;

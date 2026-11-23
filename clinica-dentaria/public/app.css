@@ -385,3 +385,16 @@ table.t tr[class*="row-"]:hover td { background: var(--hover); }
 
 /* ---------- primeiro acesso ---------- */
 #trocar-pw p { margin: 0 0 12px; }
+
+/* ---------- ficheiros do paciente ---------- */
+.anx-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 10px; }
+.anx { position: relative; margin: 0; border: 1px solid var(--rule); border-radius: var(--r); background: var(--sheet); cursor: pointer; overflow: hidden; }
+.anx:hover, .anx:focus { border-color: var(--blue); outline: none; }
+.anx img, .anx-pdf { display: block; width: 100%; height: 120px; object-fit: cover; background: var(--paper); }
+.anx-pdf { display: grid; place-items: center; font-weight: 600; color: var(--muted); }
+.anx figcaption { padding: 6px 8px; font-size: .86rem; line-height: 1.3; }
+.anx [data-del] { position: absolute; top: 4px; right: 4px; background: var(--sheet); }
+.anx-drop { border: 2px dashed var(--rule); border-radius: var(--r); padding: 22px; text-align: center; cursor: pointer; }
+.anx-drop.on { border-color: var(--blue); background: var(--blue-wash); }
+.anx-view { max-height: 70vh; overflow: auto; text-align: center; background: var(--paper); }
+.anx-view img { max-width: 100%; }

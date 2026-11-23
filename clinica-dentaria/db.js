@@ -159,6 +159,9 @@ CREATE TABLE IF NOT EXISTS anamnese_perguntas (
 CREATE TABLE IF NOT EXISTS anamnese_respostas (
   paciente_id INTEGER REFERENCES pacientes(id) ON DELETE CASCADE, pergunta_id INTEGER REFERENCES anamnese_perguntas(id),
   valor TEXT, PRIMARY KEY (paciente_id, pergunta_id));
+CREATE TABLE IF NOT EXISTS anexos (
+  id INTEGER PRIMARY KEY, paciente_id INTEGER NOT NULL REFERENCES pacientes(id), nome_original TEXT, ficheiro TEXT NOT NULL, mime TEXT,
+  tamanho INTEGER, categoria TEXT, descricao TEXT, dente TEXT, data TEXT, criado_por INTEGER, criado_em TEXT DEFAULT (datetime('now','localtime')));
 `);
 if (db.prepare('SELECT COUNT(*) c FROM anamnese_perguntas').get().c === 0) {
   const ins = db.prepare("INSERT INTO anamnese_perguntas (texto, tipo, alerta, ordem) VALUES (?, 'sn', 1, ?)");
