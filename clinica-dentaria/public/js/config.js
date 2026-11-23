@@ -3,7 +3,7 @@
 const CFG_SECTIONS = [
   ['clinica', 'Empresa / clínica'], ['agenda', 'Agenda e feriados'], ['ivas', 'Tabela de IVA'], ['medicos', 'Médicos'], ['servicos', 'Tratamentos e preços'], ['especialidades', 'Especialidades'],
   ['gabinetes', 'Gabinetes'], ['estados', 'Estados das consultas'], ['razoes', 'Razões 1.ª visita'], ['entidades', 'Entidades / seguros'],
-  ['laboratorios', 'Laboratórios'], ['armazens', 'Armazéns'], ['mensagens', 'E-mail e SMS'], ['sms', 'Modelos de mensagem'], ['anamnese', 'Anamnese'], ['utilizadores', 'Utilizadores'], ['registos', 'Registos'], ['backup', 'Cópia de segurança'],
+  ['laboratorios', 'Laboratórios'], ['armazens', 'Armazéns'], ['mensagens', 'E-mail e SMS'], ['sms', 'Modelos de mensagem'], ['anamnese', 'Anamnese'], ['utilizadores', 'Utilizadores'], ['registos', 'Registos'], ['importar', 'Importar pacientes'], ['backup', 'Cópia de segurança'],
 ];
 
 // definição genérica: k = coluna, t = tipo
@@ -101,6 +101,7 @@ route('config', async (view, [sec = 'clinica']) => {
   $$('.subnav button', view).forEach(b => b.onclick = () => go('#/config/' + b.dataset.s));
   const body = $('#cf-body');
   if (CRUD_DEFS[sec]) return crudSection(body, CRUD_DEFS[sec]);
+  if (sec === 'importar') return importarSection(body, admin);
   const c = L().config;
   const saveCfg = async (form) => { await act(() => PUT('config', readForm(form)), 'Configuração guardada'); await refreshLookups(); render(); };
 
