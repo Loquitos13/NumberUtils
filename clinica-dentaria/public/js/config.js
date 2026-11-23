@@ -218,6 +218,7 @@ route('config', async (view, [sec = 'clinica']) => {
     body.innerHTML = `<h3>Cópia de segurança</h3><p>Descarrega uma cópia completa da base de dados (pacientes, agenda, faturação, stocks e configuração).
       Guarde-a num disco externo ou na nuvem. Recomenda-se uma cópia diária.</p>
       <p><a class="btn primary" href="/api/backup" ${admin ? '' : 'onclick="return false" style="opacity:.5"'}>Descarregar cópia de segurança</a></p>
-      <p class="muted small">Para restaurar: pare o servidor, substitua o ficheiro <code>data/clinica.db</code> pela cópia (renomeada para clinica.db) e volte a iniciar.</p>`;
+      <p class="muted small">Para restaurar: pare o servidor, substitua o ficheiro <code>data/clinica.db</code> pela cópia (renomeada para clinica.db) e volte a iniciar.</p>
+      <p class="alert">Os ficheiros dos pacientes (RX, fotos, documentos) não estão nesta cópia: estão na pasta <code>data/anexos</code> e têm de ser copiados à parte.</p>`;
   }
 });
