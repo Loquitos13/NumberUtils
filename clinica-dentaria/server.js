@@ -126,7 +126,7 @@ function crud(method, table, id, query, body, user) {
     const soNotas = method === 'PUT' && Object.keys(pick(body, TABLES.tratamentos.cols)).every(k => ['notas', 'marcacao_id'].includes(k));
     if (t && !soNotas) throw new HttpError(409, `Tratamento já faturado (${t.numero}). Para corrigir, emita uma nota de crédito.`);
   }
-  if (table === 'anexos') ANX.antesCrud(method, id, pick(body, def.cols));
+  if (table === 'anexos') { const r = ANX.antesCrud(method, id, body, user); if (r) return r; } // normaliza o body antes do pick
   if (method === 'POST') {
     const o = pick(body, def.cols);
     if (table === 'pacientes') {
@@ -819,7 +819,7 @@ async function api(req, res, url) {
         entidades: all('SELECT * FROM entidades ORDER BY nome'), laboratorios: all('SELECT * FROM laboratorios ORDER BY nome'),
         armazens: all('SELECT * FROM armazens ORDER BY id'), sms_modelos: all('SELECT * FROM sms_modelos ORDER BY nome'),
         ivas: all('SELECT * FROM ivas ORDER BY regiao, taxa'), isencoes: D.ISENCOES,
-        tipos_bloqueio: TIPOS_BLOQ, utilizadores: all('SELECT id, nome FROM users ORDER BY nome'),
+        tipos_bloqueio: TIPOS_BLOQ, utilizadores: all('SELECT id, nome FROM users ORDER BY nome'), anexo_categorias: ANX.CATEGORIAS,
         config: cfgPublica(),
       };
     case 'users': {

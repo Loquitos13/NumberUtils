@@ -1,30 +1,44 @@
 'use strict';
 /* Ficheiros do paciente: RX, fotos, consentimentos, relatórios */
-const ANX_CATS = ['RX', 'Foto intraoral', 'Consentimento', 'Relatório', 'Outro'];
 const anxUrl = a => `/api/anexos/${a.id}/ficheiro`;
 
 async function tabAnexos(el, p, cat = '') {
   const lista = await GET(`t/anexos?paciente_id=${p.id}${cat ? '&categoria=' + encodeURIComponent(cat) : ''}`);
   el.innerHTML = `<div class="card"><div class="row between" style="margin-bottom:10px">
-    <div class="seg">${['', ...ANX_CATS].map(c => `<button class="${c === cat ? 'on' : ''}" data-cat="${esc(c)}">${esc(c || 'Todos')}</button>`).join('')}</div>
+    <div class="seg">${['', ...L().anexo_categorias].map(c => `<button class="${c === cat ? 'on' : ''}" data-cat="${esc(c)}">${esc(c || 'Todos')}</button>`).join('')}</div>
     <button class="primary" id="anx-new">Carregar ficheiro</button></div>
     ${lista.length ? `<div class="anx-grid">${lista.map(a => `<figure class="anx" data-id="${a.id}" tabindex="0" title="${esc(a.nome_original)}">
       ${a.mime.startsWith('image/') ? `<img src="${anxUrl(a)}" alt="${esc(a.descricao || a.nome_original)}" loading="lazy">` : '<div class="anx-pdf">PDF</div>'}
       <figcaption><b>${esc(a.categoria)}</b>${a.dente ? ' · dente ' + esc(a.dente) : ''}<br><span class="muted small">${esc(fmtDate(a.data || a.criado_em))} ${esc(a.descricao || a.nome_original)}</span></figcaption>
-      <button class="ghost sm icon" data-del="${a.id}" aria-label="Eliminar" title="Eliminar"><i data-ic="trash"></i></button></figure>`).join('')}</div>`
+      <div class="anx-acoes"><button class="ghost sm icon" data-edit="${a.id}" aria-label="Editar dados" title="Editar dados"><i data-ic="edit"></i></button>${App.user.perfil === 'admin'
+        ? `<button class="ghost sm icon" data-del="${a.id}" aria-label="Eliminar" title="Eliminar"><i data-ic="trash"></i></button>` : ''}</div></figure>`).join('')}</div>`
     : '<div class="empty">Sem ficheiros</div>'}</div>`;
   $$('[data-cat]', el).forEach(b => b.onclick = () => tabAnexos(el, p, b.dataset.cat));
   $('#anx-new', el).onclick = () => carregarAnexo(p, () => tabAnexos(el, p, cat));
   $$('.anx', el).forEach(f => {
     const a = byId(lista, f.dataset.id);
     const abrir = () => a.mime === 'application/pdf' ? window.open(anxUrl(a), '_blank') : verAnexo(a);
-    f.onclick = e => { if (!e.target.closest('[data-del]')) abrir(); };
+    f.onclick = e => { if (!e.target.closest('.anx-acoes')) abrir(); };
     f.onkeydown = e => { if (e.key === 'Enter') abrir(); };
   });
+  $$('[data-edit]', el).forEach(b => b.onclick = () => editarAnexo(byId(lista, b.dataset.edit), () => tabAnexos(el, p, cat)));
   $$('[data-del]', el).forEach(b => b.onclick = async () => {
     if (!await confirmDlg('Eliminar este ficheiro? Não é possível recuperá-lo.', 'Eliminar', true)) return;
     await act(() => DEL('t/anexos/' + b.dataset.del), 'Ficheiro eliminado'); tabAnexos(el, p, cat);
   });
+}
+
+// categoria, dente, data e descrição: os mesmos campos ao carregar e ao editar
+const anxCampos = a => `<div class="grid g3">${fld('Categoria', sel('categoria', optsArr(L().anexo_categorias, a.categoria)))}${fld('Dente', inp('dente', a.dente, 'placeholder="ex.: 16" maxlength="2"'))}${fld('Data', inp('data', a.data, 'type="date"'))}</div>
+  ${fld('Descrição', inp('descricao', a.descricao, 'maxlength="500"'))}`;
+
+function editarAnexo(a, done) {
+  modal({ title: `Editar dados — ${a.nome_original}`, body: anxCampos(a),
+    buttons: [{ label: 'Cancelar' }, { label: 'Guardar', cls: 'primary', onClick: async c => {
+      const f = readForm(c.body);
+      for (const k of ['dente', 'data', 'descricao']) if (f[k] === '') f[k] = null; // vazio = sem valor (o servidor recusa '')
+      await PUT('t/anexos/' + a.id, f); toast('Dados guardados'); done();
+    } }] });
 }
 
 function carregarAnexo(p, done) {
@@ -32,8 +46,7 @@ function carregarAnexo(p, done) {
   modal({ title: 'Carregar ficheiro', body: `<div class="anx-drop" tabindex="0">Arraste o ficheiro para aqui ou <u>clique para escolher</u><br>
       <span class="muted small">JPG, PNG, WebP ou PDF, até 20 MB</span><div id="anx-nome" class="bold"></div></div>
     <input type="file" id="anx-file" accept="image/jpeg,image/png,image/webp,application/pdf" hidden>
-    <div class="grid g3" style="margin-top:10px">${fld('Categoria', sel('categoria', optsArr(ANX_CATS, 'RX')))}${fld('Dente', inp('dente', '', 'placeholder="ex.: 16" maxlength="2"'))}${fld('Data', inp('data', isoDate(), 'type="date"'))}</div>
-    ${fld('Descrição', inp('descricao', ''))}`,
+    <div style="margin-top:10px">${anxCampos({ categoria: 'RX', data: isoDate() })}</div>`,
   onOpen: c => {
     const drop = $('.anx-drop', c.body), input = $('#anx-file', c.body);
     const escolher = f => { file = f; $('#anx-nome', c.body).textContent = f ? `${f.name} (${num(f.size / 1048576, 1)} MB)` : ''; };

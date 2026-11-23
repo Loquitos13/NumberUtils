@@ -22,6 +22,17 @@ async function enviar(pid, bytes, qs = '', ck = cookie) {
   const r = await fetch(`${base}/api/pacientes/${pid}/anexos?${qs}`, { method: 'POST', headers: { 'Content-Type': 'application/octet-stream', Cookie: ck }, body: bytes });
   return { status: r.status, body: await r.json() };
 }
+// cria um utilizador da receção e devolve o cookie da sessão dele
+async function sessaoRececao(login) {
+  await ok('POST', 'users', { nome: login, login, perfil: 'rececao', password: 'provisoria-1' });
+  let ck = '';
+  for (const [url, corpo] of [['login', { login, password: 'provisoria-1' }], ['password', { atual: 'provisoria-1', nova: 'definitiva-1' }]]) {
+    const r = await fetch(`${base}/api/${url}`, { method: 'POST', headers: { 'Content-Type': 'application/json', Cookie: ck }, body: JSON.stringify(corpo) });
+    assert.equal(r.status, 200);
+    ck = r.headers.get('set-cookie')?.split(';')[0] || ck;
+  }
+  return ck;
+}
 const PNG = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.from('resto-do-png')]);
 
 let pid;
@@ -91,4 +102,37 @@ test('nomes e ids não permitem sair de anexos/', async () => {
   await ok('PUT', `t/anexos/${a.id}`, { ficheiro: '../../clinica.db' }); // o caminho não é editável
   const f = await fetch(`${base}/api/anexos/${a.id}/ficheiro`, { headers: { Cookie: cookie } });
   assert.deepEqual(Buffer.from(await f.arrayBuffer()), PNG);
+});
+
+test('a descrição é cortada a 500 caracteres também ao editar', async () => {
+  const a = (await enviar(pid, PNG, 'categoria=RX')).body;
+  assert.equal((await ok('PUT', `t/anexos/${a.id}`, { descricao: 'x'.repeat(900) })).descricao.length, 500);
+});
+
+test('o ficheiro descarregado pode ficar em cache privada (o conteúdo nunca muda)', async () => {
+  const a = (await enviar(pid, PNG, 'categoria=RX')).body;
+  const f = await fetch(`${base}/api/anexos/${a.id}/ficheiro`, { headers: { Cookie: cookie } });
+  assert.equal(f.headers.get('cache-control'), 'private, max-age=31536000, immutable');
+});
+
+test('erro a ler o ficheiro do disco não derruba o servidor', async () => {
+  const a = (await enviar(pid, PNG, 'categoria=RX')).body;
+  const f = path.join(dir, 'anexos', a.ficheiro);
+  fs.rmSync(f); fs.mkdirSync(f); // uma pasta no lugar do ficheiro: a leitura falha com EISDIR
+  await fetch(`${base}/api/anexos/${a.id}/ficheiro`, { headers: { Cookie: cookie } }).then(r => r.arrayBuffer()).catch(() => {});
+  assert.equal((await api('GET', `t/anexos/${a.id}`)).status, 200);
+});
+
+test('só o administrador elimina ficheiros; a receção pode editar os dados', async () => {
+  const a = (await enviar(pid, PNG, 'categoria=RX')).body;
+  const ck = await sessaoRececao('rececao-anexos');
+  assert.equal((await api('PUT', `t/anexos/${a.id}`, { dente: '21' }, ck)).status, 200);
+  assert.equal((await api('DELETE', `t/anexos/${a.id}`, null, ck)).status, 403);
+  assert.ok(fs.existsSync(path.join(dir, 'anexos', a.ficheiro)));
+  await ok('DELETE', `t/anexos/${a.id}`);
+  assert.ok((await ok('GET', 'logs')).some(l => l.acao === 'eliminar anexos' && l.detalhe === `id=${a.id}`));
+});
+
+test('a lista de categorias vem do servidor', async () => {
+  assert.deepEqual((await ok('GET', 'lookups')).anexo_categorias, ['RX', 'Foto intraoral', 'Consentimento', 'Relatório', 'Outro']);
 });

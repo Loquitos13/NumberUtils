@@ -61,8 +61,13 @@ function validarDados(dados) {
 }
 
 function guardar(pid, id, body, user) {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(body.data || ''))) throw erro(400, 'Data do exame inválida');
-  const o = { data: body.data, medico_id: Number(body.medico_id) || null, dados: JSON.stringify(validarDados(body.dados)), notas: body.notas == null ? null : String(body.notas) };
+  const data = String(body.data || '');
+  // o Date normaliza 2026-02-30 para 03-02: só é real se voltar igual
+  const t = new Date(data + 'T00:00:00Z');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(data) || isNaN(t) || t.toISOString().slice(0, 10) !== data) throw erro(400, 'Data do exame inválida');
+  const medico_id = Number(body.medico_id) || null;
+  if (medico_id && !get('SELECT 1 FROM medicos WHERE id=?', medico_id)) throw erro(400, 'Médico inexistente');
+  const o = { data, medico_id,dados: JSON.stringify(validarDados(body.dados)), notas: body.notas == null ? null : String(body.notas) };
   if (id) {
     run('UPDATE perio_exames SET data=?, medico_id=?, dados=?, notas=? WHERE id=?', o.data, o.medico_id, o.dados, o.notas, id);
     D.log(user.id, 'editar periodontograma', `id=${id}`);
@@ -85,7 +90,10 @@ function doExame(m, id, body, user) {
   const e = exame(id);
   if (m === 'GET') return e;
   if (m === 'PUT') return guardar(e.paciente_id, id, { ...e, ...body }, user);
-  if (m === 'DELETE') { run('DELETE FROM perio_exames WHERE id=?', id); D.log(user.id, 'eliminar periodontograma', `id=${id}`); return { ok: true }; }
+  if (m === 'DELETE') {
+    if (user.perfil !== 'admin') throw erro(403, 'Apenas administradores podem eliminar exames');
+    run('DELETE FROM perio_exames WHERE id=?', id); D.log(user.id, 'eliminar periodontograma', `id=${id}`); return { ok: true };
+  }
   throw erro(405, 'Método não suportado');
 }
 
