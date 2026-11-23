@@ -15,36 +15,6 @@ function tipoDente(n) {
   return { t, sup, dec, u, mesialDir: (q === 1 || q === 4 || q === 5 || q === 8) ? 1 : -1 };
 }
 
-// geometria na orientação superior (raízes para cima, coroa em baixo). Caixa 40 x 84; colo (CEJ) em y=52.
-const COROA = {
-  i1: 'M7 52C6 64 6 74 8 81Q20 84.5 32 81C34 74 34 64 33 52Z',
-  i2: 'M9 52C8 64 8 73 10 80Q20 83 30 80C32 73 32 64 31 52Z',
-  c: 'M8 52C7 63 10 73 20 82C30 73 33 63 32 52Z',
-  pm1: 'M8 52C6 62 8 72 13 79L20 74.5L27 79C32 72 34 62 32 52Z',
-  pm2: 'M8 52C6 62 8 72 13.5 78.5L20 75.5L26.5 78.5C32 72 34 62 32 52Z',
-  m: 'M4 52C2 62 4 73 9 79L14.5 74.5L20 79L25.5 74.5L31 79C36 73 38 62 36 52Z',
-};
-function raizes(tp) {
-  const { t, sup, u, dec } = tp;
-  if (t === 'i1') return ['M9 52C11 34 15 12 20 4C25 12 29 34 31 52Z'];
-  if (t === 'i2') return ['M11 52C13 36 16 16 20 8C24 16 27 36 29 52Z'];
-  if (t === 'c') return ['M10 52C11 30 15 6 20 0C25 6 29 30 30 52Z'];
-  if (t === 'pm1' && sup) return ['M10 52C10 36 11 20 14 12C17 22 18 38 19.5 52Z', 'M20.5 52C22 38 23 22 26 12C29 20 30 36 30 52Z'];
-  if (t === 'pm1' || t === 'pm2') return ['M11 52C12 34 16 14 20 8C24 14 28 34 29 52Z'];
-  // molares
-  const curto = u === 8 || dec ? 6 : 0;
-  if (sup) return [`M15 52C15 36 17 ${18 + curto} 20 ${8 + curto}C23 ${18 + curto} 25 36 25 52Z`,
-    `M5.5 52C5 38 6 ${22 + curto} 9 ${12 + curto}C12 ${22 + curto} 14 38 16 52Z`, `M24 52C26 38 28 ${22 + curto} 31 ${12 + curto}C34 ${22 + curto} 35 38 34.5 52Z`];
-  return [`M5.5 52C5 36 7 ${18 + curto} 10 ${10 + curto}C13 ${18 + curto} 15 36 17 52Z`, `M23 52C25 36 27 ${18 + curto} 30 ${10 + curto}C33 ${18 + curto} 35 36 34.5 52Z`];
-}
-function canais(tp) {
-  const { t, sup } = tp;
-  if (t === 'i1' || t === 'i2') return 'M20 50L20 12';
-  if (t === 'c') return 'M20 50L20 6';
-  if (t === 'pm1' && sup) return 'M15 50L14.3 18M25 50L25.8 18';
-  if (t === 'pm1' || t === 'pm2') return 'M20 50L20 14';
-  return sup ? 'M10.5 50L9.3 18M29.5 50L30.8 18M20 50L20 14' : 'M11 50L10 16M29 50L30 16';
-}
 // vista oclusal (caixa 40x40)
 const OCLUSAL = {
   i: { o: 'M5 20C5 13 12 11.5 20 11.5C28 11.5 35 13 35 20C35 27 28 28.5 20 28.5C12 28.5 5 27 5 20Z', c: '<ellipse cx="20" cy="20" rx="8" ry="3.2"/>', g: '' },

@@ -19,6 +19,18 @@
     </form>
   </div>
 
+  <div id="trocar" class="hidden">
+    <form id="trocar-pw" style="background:var(--sheet);padding:24px;border-radius:var(--r-lg);width:360px;box-shadow:0 24px 60px rgba(0,0,0,.3)">
+      <h1>Defina a sua palavra-passe</h1>
+      <p class="muted">Por segurança, tem de escolher uma palavra-passe nova antes de continuar (mínimo 8 caracteres).</p>
+      <div class="field"><label class="f">Palavra-passe atual</label><input name="atual" type="password" autocomplete="current-password" required></div>
+      <div class="field"><label class="f">Nova palavra-passe</label><input name="nova" type="password" autocomplete="new-password" minlength="8" required></div>
+      <div class="field"><label class="f">Repetir a nova</label><input name="nova2" type="password" autocomplete="new-password" minlength="8" required></div>
+      <div id="trocar-err" class="alert danger hidden"></div>
+      <button class="primary" style="width:100%;justify-content:center">Guardar e entrar</button>
+    </form>
+  </div>
+
   <div id="app" class="hidden">
     <aside id="side">
       <div class="logo"><i data-ic="tooth"></i><span>OralSaúde<small id="side-clinica"></small></span></div>

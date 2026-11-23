@@ -201,46 +201,17 @@ const CONDICOES = [['carie', 'Cárie', '#ef4444'], ['restauracao', 'Restauraçã
 const COND = Object.fromEntries(CONDICOES.map(([k, l, c]) => [k, { l, c }]));
 const FACES = { O: 'Oclusal/Incisal', V: 'Vestibular', L: 'Lingual/Palatina', M: 'Mesial', D: 'Distal' };
 
-// posição visual das faces: superior, inferior, esquerda, direita
-function facePos(n) {
-  const q = Math.floor(n / 10) % 5 || 5; const qq = q > 4 ? q - 4 : q; // decíduos 5-8 -> 1-4
-  const up = qq === 1 || qq === 2;
-  const mesialRight = qq === 1 || qq === 4;
-  return { top: up ? 'V' : 'L', bottom: up ? 'L' : 'V', left: mesialRight ? 'D' : 'M', right: mesialRight ? 'M' : 'D' };
-}
-function toothSVG(n, st) {
-  const fp = facePos(n);
-  const fill = f => st.faces[f] || '#fff';
-  let extra = '';
-  if (st.whole.ausente) extra += '<line x1="4" y1="4" x2="36" y2="36" stroke="#6b7280" stroke-width="3"/><line x1="36" y1="4" x2="4" y2="36" stroke="#6b7280" stroke-width="3"/>';
-  if (st.whole.extrair) extra += '<line x1="4" y1="4" x2="36" y2="36" stroke="#dc2626" stroke-width="3"/><line x1="36" y1="4" x2="4" y2="36" stroke="#dc2626" stroke-width="3"/>';
-  if (st.whole.coroa) extra += '<circle cx="20" cy="20" r="18" fill="none" stroke="#eab308" stroke-width="3" style="fill:none;stroke:#eab308"/>';
-  if (st.whole.implante) extra += '<rect x="16" y="2" width="8" height="36" rx="2" style="fill:#16a34a;stroke:#166534;opacity:.85"/>';
-  if (st.whole.endodontia) extra += '<line x1="20" y1="3" x2="20" y2="37" style="stroke:#a855f7" stroke-width="4"/>';
-  if (st.whole.fratura) extra += '<polyline points="8,6 18,18 12,22 30,34" fill="none" style="fill:none;stroke:#f97316" stroke-width="2.5"/>';
-  if (st.whole.mobilidade) extra += '<text x="20" y="25" text-anchor="middle" font-size="14" font-weight="700" fill="#78716c">M</text>';
-  if (st.planned) extra += '<circle cx="34" cy="6" r="4.5" style="fill:#b8202d;stroke:#fff"/>';
-  if (st.done) extra += '<circle cx="6" cy="6" r="4.5" style="fill:#2f5cc4;stroke:#fff"/>';
-  return `<svg viewBox="0 0 40 40">
-    <path data-f="${fp.top}" d="M2 2 L38 2 L28 12 L12 12 Z" style="fill:${fill(fp.top)}"/>
-    <path data-f="${fp.bottom}" d="M2 38 L38 38 L28 28 L12 28 Z" style="fill:${fill(fp.bottom)}"/>
-    <path data-f="${fp.left}" d="M2 2 L12 12 L12 28 L2 38 Z" style="fill:${fill(fp.left)}"/>
-    <path data-f="${fp.right}" d="M38 2 L28 12 L28 28 L38 38 Z" style="fill:${fill(fp.right)}"/>
-    <rect data-f="O" x="12" y="12" width="16" height="16" style="fill:${fill('O')}"/>${extra}</svg>`;
-}
-
 function tabOdonto(el, p) { return odontograma(el, p); }
 
 // ---------- tratamentos ----------
 async function tabTratamentos(el, p) {
   const trat = await GET(`pacientes/${p.id}/tratamentos`);
   const st = el._tr ||= { filtro: 'todos', sel: new Set() };
-  const liq = t => t.preco * (1 - (t.desconto_pct || 0) / 100) * (1 + (t.iva || 0) / 100);
   for (const t of trat) t._e = estadoTrat(t).k;
   st.sel = new Set([...st.sel].filter(id => trat.some(t => t.id === id)));
   const cont = k => trat.filter(t => t._e === k);
   const vis = st.filtro === 'todos' ? trat : cont(st.filtro);
-  const soma = l => l.reduce((s, t) => s + liq(t), 0);
+  const soma = l => l.reduce((s, t) => s + liqTrat(t), 0);
   const selecionados = trat.filter(t => st.sel.has(t.id));
   el.innerHTML = `<div class="card">
     <div class="row" style="margin-bottom:10px">
@@ -255,7 +226,7 @@ async function tabTratamentos(el, p) {
       { h: 'Data', f: t => `<span class="num">${fmtDate(t.data)}</span>` }, { h: 'Dente', f: t => `<b class="num">${esc(t.dente || '')}</b>${t.faces ? ' <span class="muted small">' + esc(t.faces) + '</span>' : ''}` },
       { h: 'Tratamento', f: t => esc(t.descricao) }, { h: 'Médico', f: t => esc(t.medico_nome) },
       { h: 'Estado', f: t => t.documento_id ? `<a href="#" data-doc="${t.documento_id}" class="plain">${estadoChip(t)}</a>` : estadoChip(t) },
-      { h: 'Valor', cls: 'right', f: t => eur(liq(t)) + (t.desconto_pct ? ` <span class="muted small">-${num(t.desconto_pct)}%</span>` : '') },
+      { h: 'Valor', cls: 'right', f: t => eur(liqTrat(t)) + (t.desconto_pct ? ` <span class="muted small">-${num(t.desconto_pct)}%</span>` : '') },
       { h: '', cls: 'right', f: t => `<button class="ghost sm icon" data-ed="${t.id}" aria-label="Editar" title="Editar"><i data-ic="edit"></i></button>${t.documento_id ? '' : `<button class="ghost sm icon" data-del="${t.id}" aria-label="Eliminar" title="Eliminar"><i data-ic="trash"></i></button>`}` },
     ], { empty: st.filtro === 'todos' ? 'Sem tratamentos registados' : 'Nenhum tratamento neste estado', rowCls: t => 'row-' + t._e })}</div>
     <div class="row" style="margin-top:8px">

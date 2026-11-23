@@ -186,10 +186,25 @@ const MIGRACOES = [
   'ALTER TABLE sms_historico ADD COLUMN erro TEXT',
   'ALTER TABLE sms_historico ADD COLUMN marcacao_id INTEGER',
   'ALTER TABLE marcacoes ADD COLUMN lembrete_em TEXT',
+  'ALTER TABLE users ADD COLUMN trocar_pw INTEGER DEFAULT 0',
 ];
 for (const sql of MIGRACOES) {
   try { db.exec(sql); } catch { /* coluna já existe */ }
 }
+// índices: sem eles cada pesquisa por paciente percorre a tabela toda
+db.exec(`
+CREATE INDEX IF NOT EXISTS idx_doc_pac ON documentos(paciente_id);
+CREATE INDEX IF NOT EXISTS idx_doc_ref ON documentos(ref_documento_id);
+CREATE INDEX IF NOT EXISTS idx_pag_pac ON pagamentos(paciente_id);
+CREATE INDEX IF NOT EXISTS idx_pag_doc ON pagamentos(documento_id);
+CREATE INDEX IF NOT EXISTS idx_pag_rec ON pagamentos(recibo_id);
+CREATE INDEX IF NOT EXISTS idx_trat_pac ON tratamentos(paciente_id);
+CREATE INDEX IF NOT EXISTS idx_trat_doc ON tratamentos(documento_id);
+CREATE INDEX IF NOT EXISTS idx_marc_pac ON marcacoes(paciente_id);
+CREATE INDEX IF NOT EXISTS idx_notas_pac ON notas_clinicas(paciente_id);
+CREATE INDEX IF NOT EXISTS idx_cond_pac ON dentes_condicoes(paciente_id);
+CREATE INDEX IF NOT EXISTS idx_docl_doc ON documento_linhas(documento_id);
+`);
 
 // tabela de IVA (Portugal continental e regiões autónomas) com motivos de isenção
 const ISENCOES = [
@@ -277,15 +292,25 @@ function seed() {
       ['Dra. Carla Mendes', 'CM', 2, '#db2777'], ['Dr. Duarte Silva', 'DS', 4, '#ea580c'],
       ['Hig. Eva Lopes', 'EL', 9, '#0891b2'],
     ];
-    medicos.forEach(([n, a, e, c], i) => run(
+    const demo = process.env.DEMO === '1';
+    if (demo) medicos.forEach(([n, a, e, c], i) => run(
       'INSERT INTO medicos (nome, abreviatura, especialidade_id, cor, cedula, comissao_pct) VALUES (?,?,?,?,?,?)',
       n, a, e, c, i < 4 ? String(10000 + i * 137) : '', i < 4 ? 40 : 30));
 
     ['Gabinete 1', 'Gabinete 2', 'Gabinete 3', 'Sala de Higiene'].forEach(n => run('INSERT INTO gabinetes (nome) VALUES (?)', n));
 
-    run('INSERT INTO users (nome, login, pass_hash, perfil) VALUES (?,?,?,?)', 'Administrador', 'admin', hashPassword('admin'), 'admin');
-    run('INSERT INTO users (nome, login, pass_hash, perfil) VALUES (?,?,?,?)', 'Receção', 'rececao', hashPassword('rececao'), 'rececao');
-    run('INSERT INTO users (nome, login, pass_hash, perfil, medico_id) VALUES (?,?,?,?,?)', 'Dra. Ana Ribeiro', 'ana', hashPassword('ana'), 'medico', 1);
+    // primeiro acesso: palavra-passe aleatória (ou ADMIN_PASSWORD), mostrada uma vez; tem de ser mudada no 1.º login
+    const pw = process.env.ADMIN_PASSWORD || crypto.randomBytes(6).toString('base64url');
+    run('INSERT INTO users (nome, login, pass_hash, perfil, trocar_pw) VALUES (?,?,?,?,?)', 'Administrador', 'admin', hashPassword(pw), 'admin', process.env.ADMIN_PASSWORD ? 0 : 1);
+    if (!process.env.ADMIN_PASSWORD) {
+      const txt = `Primeiro acesso à aplicação\n\nUtilizador: admin\nPalavra-passe: ${pw}\n\nVai ser pedida uma nova palavra-passe no primeiro login. Depois disso, apague este ficheiro.\n`;
+      fs.writeFileSync(path.join(DATA_DIR, 'PRIMEIRO-ACESSO.txt'), txt);
+      console.log(`\n  PRIMEIRO ACESSO — utilizador: admin   palavra-passe: ${pw}\n  (também guardada em ${path.join(DATA_DIR, 'PRIMEIRO-ACESSO.txt')})\n`);
+    }
+    if (demo) {
+      run('INSERT INTO users (nome, login, pass_hash, perfil) VALUES (?,?,?,?)', 'Receção', 'rececao', hashPassword('rececao'), 'rececao');
+      run('INSERT INTO users (nome, login, pass_hash, perfil, medico_id) VALUES (?,?,?,?,?)', 'Dra. Ana Ribeiro', 'ana', hashPassword('ana'), 'medico', 1);
+    }
 
     const estados = [
       ['Marcada', '#38bdf8', 'OUTRAS'], ['Confirmada', '#7c3aed', 'OUTRAS'], ['A Confirmar', '#c084fc', 'OUTRAS'],
@@ -332,10 +357,10 @@ function seed() {
     servicos.forEach(([c, n, e, p, d, pd]) => run(
       'INSERT INTO servicos (codigo, nome, especialidade_id, preco, iva, duracao_min, por_dente) VALUES (?,?,?,?,0,?,?)', c, n, e, p, d, pd));
 
+    ['Armazém principal', 'Gabinete 1', 'Gabinete 2'].forEach(n => run('INSERT INTO armazens (nome) VALUES (?)', n));
+    if (demo) {
     run("INSERT INTO laboratorios (nome, telefone, email) VALUES ('Laboratório Dental Norte', '220 111 222', 'lab@exemplo.pt')");
     run("INSERT INTO laboratorios (nome, telefone, email) VALUES ('ProtLab Gaia', '220 333 444', 'geral@protlab.exemplo')");
-
-    ['Armazém principal', 'Gabinete 1', 'Gabinete 2'].forEach(n => run('INSERT INTO armazens (nome) VALUES (?)', n));
     const produtos = [
       ['LUV-M', 'Luvas nitrilo M (caixa 100)', 'Descartáveis', 'cx', 5, 15, 6.5],
       ['MASC', 'Máscaras cirúrgicas (caixa 50)', 'Descartáveis', 'cx', 4, 10, 4],
@@ -354,6 +379,7 @@ function seed() {
     qtds.forEach((q, i) => run(
       "INSERT INTO movimentos_stock (produto_id, armazem_id, tipo, qtd, data, motivo, lote, validade) VALUES (?,1,'entrada',?,?,'Stock inicial',?,?)",
       i + 1, q, hoje, 'L' + (2400 + i), i === 2 ? addDays(hoje, 40) : addDays(hoje, 500)));
+    }
 
     const sms = [
       ['Lembrete de consulta', 'Olá {primeiro_nome}, lembramos a sua consulta na {clinica} no dia {data} às {hora} com {medico}. Responda SIM para confirmar. Obrigado!'],
@@ -364,7 +390,7 @@ function seed() {
     ];
     sms.forEach(([n, t]) => run('INSERT INTO sms_modelos (nome, texto) VALUES (?,?)', n, t));
 
-    seedDemo();
+    if (demo) seedDemo();
   });
 }
 
@@ -461,6 +487,10 @@ seed();
 if (!get("SELECT valor FROM config WHERE chave='atalhos_iniciais'")) {
   run("UPDATE servicos SET atalho=1 WHERE codigo IN ('C001','H001','R001','R002','E001','X001','D002','P001')");
   run("INSERT INTO config VALUES ('atalhos_iniciais','1')");
+}
+
+for (const u of all('SELECT id, login, pass_hash FROM users WHERE trocar_pw=0 AND ativo=1')) {
+  if (checkPassword(u.login, u.pass_hash) && process.env.DEMO !== '1') run('UPDATE users SET trocar_pw=1 WHERE id=?', u.id);
 }
 
 // tratamentos sem taxa de IVA definida ficam com a taxa isenta (art. 9.º CIVA)

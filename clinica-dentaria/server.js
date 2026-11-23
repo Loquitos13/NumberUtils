@@ -49,8 +49,8 @@ function parseCookies(req) {
 function currentUser(req) {
   const t = parseCookies(req).sid;
   if (!t) return null;
-  return get(`SELECT u.id, u.nome, u.login, u.perfil, u.medico_id FROM sessions s JOIN users u ON u.id = s.user_id
-              WHERE s.token = ? AND u.ativo = 1`, t) || null;
+  return get(`SELECT u.id, u.nome, u.login, u.perfil, u.medico_id, u.trocar_pw FROM sessions s JOIN users u ON u.id = s.user_id
+              WHERE s.token = ? AND u.ativo = 1 AND s.criado_em > datetime('now','localtime','-12 hours')`, t) || null;
 }
 const isAdmin = u => u && u.perfil === 'admin';
 function requireAdmin(u) { if (!isAdmin(u)) throw new HttpError(403, 'Apenas administradores podem efetuar esta operação'); }
@@ -115,6 +115,12 @@ function crud(method, table, id, query, body, user) {
     return all(`SELECT * FROM ${table} ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ORDER BY ${def.order}`, ...params);
   }
   if (def.admin) requireAdmin(user);
+  if (table === 'pacientes' && method === 'DELETE') throw new HttpError(409, 'Os pacientes não se apagam (o histórico clínico é obrigatório). Desative a ficha.');
+  if (table === 'tratamentos' && id && (method === 'DELETE' || method === 'PUT')) {
+    const t = get("SELECT d.numero FROM tratamentos t JOIN documentos d ON d.id=t.documento_id AND d.estado='emitido' WHERE t.id=?", id);
+    const soNotas = method === 'PUT' && Object.keys(pick(body, TABLES.tratamentos.cols)).every(k => ['notas', 'marcacao_id'].includes(k));
+    if (t && !soNotas) throw new HttpError(409, `Tratamento já faturado (${t.numero}). Para corrigir, emita uma nota de crédito.`);
+  }
   if (method === 'POST') {
     const o = pick(body, def.cols);
     if (table === 'pacientes') {
@@ -286,6 +292,12 @@ function criarDocumento(body, user) {
   const linhas = Array.isArray(body.linhas) ? body.linhas.filter(l => l.descricao) : [];
   if (!linhas.length) throw new HttpError(400, 'O documento não tem linhas');
   const data = body.data || today();
+  validarDataDoc(tipo, data);
+  if (DEBITO.includes(tipo)) for (const l of linhas) if (l.tratamento_id) {
+    const t = get(`SELECT t.paciente_id, d.numero FROM tratamentos t LEFT JOIN documentos d ON d.id=t.documento_id AND d.estado='emitido' WHERE t.id=?`, l.tratamento_id);
+    if (!t || Number(t.paciente_id) !== Number(body.paciente_id)) throw new HttpError(400, 'Tratamento não pertence a este paciente');
+    if (t.numero) throw new HttpError(409, `"${l.descricao}" já está faturado (${t.numero}). Atualize a página.`);
+  }
   return tx(() => {
     let tb = 0, ti = 0;
     const calc = linhas.map(l => { const c = calcLinha(l); tb += c.base; ti += c.iva; return { l, c }; });
@@ -302,7 +314,6 @@ function criarDocumento(body, user) {
       insert('documento_linhas', { documento_id: docId, iva_id: c.ivaId, isencao_cod: c.isCod, isencao_motivo: c.isMot, servico_id: l.servico_id || null, tratamento_id: l.tratamento_id || null,
         descricao: l.descricao, dente: l.dente || null, qtd: c.qtd, preco: c.preco, desconto_pct: c.desc, iva: c.ivaPct, total: r2(c.base + c.iva) });
       if (l.tratamento_id && DEBITO.includes(tipo)) run("UPDATE tratamentos SET documento_id=?, estado=CASE WHEN estado='planeado' THEN 'realizado' ELSE estado END, data=COALESCE(data, ?) WHERE id=?", docId, data, l.tratamento_id);
-      if (l.tratamento_id && tipo === 'NC') run('UPDATE tratamentos SET documento_id=NULL WHERE id=?', l.tratamento_id);
     }
     if (tipo === 'FR' || (tipo === 'FS' && body.pago_ato !== false && body.pago_ato !== 0)) {
       insert('pagamentos', { paciente_id: body.paciente_id, documento_id: docId, recibo_id: docId, data, valor: total, metodo: body.metodo || 'Numerário' });
@@ -310,6 +321,14 @@ function criarDocumento(body, user) {
     D.log(user.id, `emitir ${tipo}`, numero);
     return docComLinhas(docId);
   });
+}
+
+// cada série segue a ordem cronológica: nem datas futuras nem anteriores ao último documento da série
+function validarDataDoc(tipo, data) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(data))) throw new HttpError(400, 'Data inválida');
+  if (data > today()) throw new HttpError(400, 'A data do documento não pode ser futura');
+  const ult = get('SELECT MAX(data) d FROM documentos WHERE tipo=? AND substr(data,1,4)=?', tipo, data.slice(0, 4)).d;
+  if (ult && data < ult) throw new HttpError(400, `A data não pode ser anterior à do último documento desta série (${ult.split('-').reverse().join('/')})`);
 }
 
 function emAberto(pid) {
@@ -324,6 +343,7 @@ function criarRecibo(body, user) {
   if (!body.paciente_id) throw new HttpError(400, 'Escolha o paciente');
   if (!(valor > 0)) throw new HttpError(400, 'Valor inválido');
   const data = body.data || today();
+  validarDataDoc('RC', data);
   const ids = (Array.isArray(body.documento_ids) ? body.documento_ids : body.documento_id ? [body.documento_id] : []).map(Number);
   const abertos = emAberto(body.paciente_id).filter(d => ids.includes(d.id));
   return tx(() => {
@@ -526,13 +546,13 @@ async function enviarMensagens(body, user) {
     alvos.push({ p: get('SELECT * FROM pacientes WHERE id=?', m.paciente_id), extra: contextoMarcacao(m, cfg), marcacao_id: m.id });
   }
   for (const pid of body.paciente_ids || []) { const p = get('SELECT * FROM pacientes WHERE id=?', pid); if (p) alvos.push({ p, extra: {} }); }
-  const out = [];
+  const out = []; const tarefas = [];
   for (const { p, extra, marcacao_id } of alvos) {
     const ctx = { nome: p.nome, primeiro_nome: (p.nome || '').split(' ')[0], clinica: cfg.clinica_nome, telefone_clinica: cfg.clinica_telefone,
       email_clinica: cfg.clinica_email, morada_clinica: [cfg.clinica_morada, cfg.clinica_cp].filter(Boolean).join(', '), ...extra };
     const texto = COM.renderModelo(modelo.texto, ctx);
     const assunto = COM.renderModelo(modelo.assunto || modelo.nome, ctx);
-    for (const canal of canais) {
+    for (const canal of canais) tarefas.push(async () => {
       const destino = canal === 'sms' ? (p.telemovel || p.telefone || '') : (p.email || '');
       let estado, erro = null;
       if (!destino) estado = canal === 'sms' ? 'sem número' : 'sem e-mail';
@@ -548,8 +568,10 @@ async function enviarMensagens(body, user) {
       run("INSERT INTO sms_historico (paciente_id, telefone, texto, data, estado, user_id, canal, erro, marcacao_id) VALUES (?,?,?,datetime('now','localtime'),?,?,?,?,?)",
         p.id, destino, canal === 'email' ? `${assunto}\n\n${texto}` : texto, estado, user ? user.id : null, canal, erro, marcacao_id || null);
       out.push({ paciente_id: p.id, nome: p.nome, canal, destino, telefone: canal === 'sms' ? destino : '', texto, assunto, estado, erro });
-    }
+    });
   }
+  let i = 0;
+  await Promise.all(Array.from({ length: Math.min(5, tarefas.length) }, async () => { while (i < tarefas.length) await tarefas[i++](); }));
   return out;
 }
 
@@ -558,6 +580,8 @@ let lembretesAtivos = false;
 async function lembretesAutomaticos() {
   const cfg = D.getConfig();
   if (cfg.lembrete_auto !== '1' || !cfg.lembrete_modelo_id || lembretesAtivos) return;
+  const canais = (cfg.lembrete_canais || 'sms').split(',').filter(c => (c === 'sms' && smsConfigurado(cfg)) || (c === 'email' && emailConfigurado(cfg)));
+  if (!canais.length) return; // sem fornecedor configurado: não gastar o lembrete
   lembretesAtivos = true;
   try {
     const horas = Number(cfg.lembrete_horas) || 24;
@@ -567,7 +591,7 @@ async function lembretesAutomaticos() {
       AND COALESCE(e.categoria,'OUTRAS') NOT IN ('INATIVAS','FALTAS','REALIZADAS')`, f(agoraD), f(lim)).map(r => r.id);
     for (const id of ids) {
       run("UPDATE marcacoes SET lembrete_em=datetime('now','localtime') WHERE id=?", id);
-      await enviarMensagens({ modelo_id: Number(cfg.lembrete_modelo_id), canais: (cfg.lembrete_canais || 'sms').split(','), marcacao_ids: [id], enviar: true }, null);
+      await enviarMensagens({ modelo_id: Number(cfg.lembrete_modelo_id), canais, marcacao_ids: [id], enviar: true }, null);
     }
     if (ids.length) D.log(null, 'lembretes automáticos', `${ids.length} marcação(ões)`);
   } catch (e) { console.error('lembretes:', e.message); }
@@ -722,6 +746,8 @@ function listagem(tipo, q) {
   throw new HttpError(404, 'Listagem desconhecida');
 }
 
+const falhas = new Map(); // tentativas de login falhadas por endereço
+
 // ---------- router da API ----------
 async function api(req, res, url) {
   const parts = url.pathname.split('/').filter(Boolean).slice(1); // remove 'api'
@@ -730,19 +756,28 @@ async function api(req, res, url) {
   const body = ['POST', 'PUT'].includes(m) ? await readBody(req) : {};
 
   if (parts[0] === 'login' && m === 'POST') {
+    const ip = req.socket.remoteAddress || '';
+    const f = falhas.get(ip);
+    if (f && f.n >= 5 && Date.now() - f.t < 10 * 60e3) throw new HttpError(429, 'Demasiadas tentativas falhadas. Aguarde 10 minutos.');
     const u = get('SELECT * FROM users WHERE login=? AND ativo=1', String(body.login || '').trim());
-    if (!u || !D.checkPassword(String(body.password || ''), u.pass_hash)) { D.log(null, 'login falhado', String(body.login || '')); throw new HttpError(401, 'Utilizador ou palavra-passe incorretos'); }
+    if (!u || !D.checkPassword(String(body.password || ''), u.pass_hash)) {
+      falhas.set(ip, { n: (f && Date.now() - f.t < 10 * 60e3 ? f.n : 0) + 1, t: Date.now() });
+      D.log(null, 'login falhado', String(body.login || '')); throw new HttpError(401, 'Utilizador ou palavra-passe incorretos');
+    }
+    falhas.delete(ip);
+    run("DELETE FROM sessions WHERE criado_em <= datetime('now','localtime','-12 hours')");
     const token = crypto.randomBytes(24).toString('hex');
     run("INSERT INTO sessions VALUES (?,?,datetime('now','localtime'))", token, u.id);
     D.log(u.id, 'login', '');
-    return send(res, 200, { id: u.id, nome: u.nome, perfil: u.perfil, medico_id: u.medico_id },
+    return send(res, 200, { id: u.id, nome: u.nome, perfil: u.perfil, medico_id: u.medico_id, trocar_pw: u.trocar_pw },
       { 'Set-Cookie': `sid=${token}; HttpOnly; Path=/; SameSite=Strict; Max-Age=${60 * 60 * 12}` });
   }
 
   const user = currentUser(req);
   if (!user) throw new HttpError(401, 'Sessão expirada. Inicie sessão novamente.');
 
-  const [r0, r1, r2_, r3] = parts;
+  const [r0, r1, r2_] = parts;
+  if (user.trocar_pw && !['me', 'password', 'logout'].includes(r0)) throw new HttpError(403, 'Tem de mudar a palavra-passe antes de continuar.');
   const id = r1 && /^\d+$/.test(r1) ? Number(r1) : null;
 
   switch (r0) {
@@ -751,8 +786,11 @@ async function api(req, res, url) {
     case 'password': {
       const u = get('SELECT * FROM users WHERE id=?', user.id);
       if (!D.checkPassword(String(body.atual || ''), u.pass_hash)) throw new HttpError(400, 'Palavra-passe atual incorreta');
-      if (String(body.nova || '').length < 4) throw new HttpError(400, 'A nova palavra-passe deve ter pelo menos 4 caracteres');
-      run('UPDATE users SET pass_hash=? WHERE id=?', D.hashPassword(body.nova), user.id);
+      const nova = String(body.nova || '');
+      if (nova.length < 8) throw new HttpError(400, 'A nova palavra-passe deve ter pelo menos 8 caracteres');
+      if (nova === u.login || D.checkPassword(nova, u.pass_hash)) throw new HttpError(400, 'Escolha uma palavra-passe diferente da atual e do nome de utilizador');
+      run('UPDATE users SET pass_hash=?, trocar_pw=0 WHERE id=?', D.hashPassword(nova), user.id);
+      if (u.login === 'admin') fs.rm(path.join(D.DATA_DIR, 'PRIMEIRO-ACESSO.txt'), { force: true }, () => {});
       return { ok: true };
     }
     case 'config':
@@ -779,7 +817,10 @@ async function api(req, res, url) {
       requireAdmin(user);
       if (m === 'GET') return all('SELECT id, nome, login, perfil, medico_id, ativo FROM users ORDER BY nome');
       const o = pick(body, ['nome', 'login', 'perfil', 'medico_id', 'ativo']);
-      if (body.password) o.pass_hash = D.hashPassword(String(body.password));
+      if (body.password) {
+        if (String(body.password).length < 8) throw new HttpError(400, 'A palavra-passe deve ter pelo menos 8 caracteres');
+        o.pass_hash = D.hashPassword(String(body.password)); o.trocar_pw = 1;
+      }
       if (m === 'POST') {
         if (!o.nome || !o.login || !o.pass_hash) throw new HttpError(400, 'Nome, login e palavra-passe são obrigatórios');
         try { return { id: insert('users', o) }; } catch { throw new HttpError(409, 'Esse login já existe'); }

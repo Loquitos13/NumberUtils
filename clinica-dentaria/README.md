@@ -20,13 +20,14 @@ npm start            # ou: node server.js
 Variáveis opcionais: `PORT=8080` (porta) e `DATA_DIR=/caminho` (pasta da base de dados).
 
 ### Primeiro acesso
-| Utilizador | Palavra-passe | Perfil |
-|---|---|---|
-| `admin` | `admin` | Administrador |
-| `rececao` | `rececao` | Receção |
-| `ana` | `ana` | Médica (exemplo) |
+No primeiro arranque a app cria o utilizador **`admin`** com uma **palavra-passe aleatória**, que aparece na janela do servidor e fica guardada em `data/PRIMEIRO-ACESSO.txt`. No primeiro login é obrigatório escolher uma palavra-passe nova (mínimo 8 caracteres); o ficheiro é apagado nesse momento. Depois, em *Configuração → Utilizadores*, crie as contas da equipa — cada pessoa define a sua palavra-passe no primeiro acesso.
 
-**Altere as palavras-passe logo no primeiro acesso** (botão 🔑 no canto inferior esquerdo) e, em *Configuração → Utilizadores*, crie os utilizadores reais e desative os de exemplo. A base de dados nova vem com dados fictícios de demonstração (médicos, pacientes, marcações): pode editá-los ou apagá-los.
+Segurança: 5 tentativas falhadas bloqueiam esse posto durante 10 minutos; as sessões expiram ao fim de 12 horas.
+
+A base de dados nova começa **vazia** (só com a tabela de tratamentos/preços, estados, feriados, IVA e modelos de mensagem). Para experimentar com dados fictícios, arranque com `DEMO=1 node server.js` numa pasta de dados separada (`DATA_DIR=...`).
+
+### Testes
+`npm test` corre os testes automáticos da faturação, recibos, saldos e permissões (numa base de dados temporária).
 
 ## Módulos
 

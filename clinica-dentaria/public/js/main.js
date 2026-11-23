@@ -7,6 +7,11 @@ const NAV = [
 ];
 
 async function startApp() {
+  if (App.user.trocar_pw) {
+    $('#login').classList.add('hidden'); $('#app').classList.add('hidden'); $('#trocar').classList.remove('hidden');
+    $('#trocar-pw input[name=atual]').focus(); return;
+  }
+  $('#trocar').classList.add('hidden');
   await refreshLookups();
   $('#login').classList.add('hidden'); $('#app').classList.remove('hidden');
   $('#user-name').textContent = `${App.user.nome} (${{ admin: 'Admin', medico: 'Médico', rececao: 'Receção', assistente: 'Assistente' }[App.user.perfil] || App.user.perfil})`;
@@ -27,6 +32,15 @@ $('#login-form').addEventListener('submit', async e => {
     e.target.reset();
     await startApp();
   } catch (err) { $('#login-err').textContent = err.message; $('#login-err').classList.remove('hidden'); }
+});
+$('#trocar-pw').addEventListener('submit', async e => {
+  e.preventDefault();
+  const f = readForm(e.target); const err = $('#trocar-err'); err.classList.add('hidden');
+  try {
+    if (f.nova !== f.nova2) throw new Error('As palavras-passe não coincidem');
+    await POST('password', f); e.target.reset();
+    App.user = await GET('me'); await startApp(); toast('Palavra-passe definida');
+  } catch (x) { err.textContent = x.message; err.classList.remove('hidden'); }
 });
 $('#btn-logout').onclick = async () => { await POST('logout').catch(() => {}); App.user = null; showLoginScreen(); };
 $('#btn-pass').onclick = () => modal({ title: 'Alterar palavra-passe', size: 'sm', body: `<form onsubmit="return false">
