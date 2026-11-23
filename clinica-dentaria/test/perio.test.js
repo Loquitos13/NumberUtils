@@ -91,3 +91,26 @@ test('lista do paciente para comparar: mais recente primeiro, com índices', asy
   assert.deepEqual(l[1].dados['36'].ps, [6, 5, 4, 3, 3, 3]);
   assert.equal((await api('GET', 'pacientes/999999/perio')).status, 404);
 });
+
+test('a data tem de existir no calendário e o médico tem de existir', async () => {
+  const post = extra => api('POST', `pacientes/${pid}/perio`, { data: '2026-05-01', dados: {}, ...extra });
+  assert.equal((await post({ data: '2024-13-45' })).status, 400);
+  assert.equal((await post({ data: '2026-02-30' })).status, 400);
+  assert.equal((await post({ medico_id: 999999 })).status, 400);
+  const e = await ok('POST', `pacientes/${pid}/perio`, { data: '2024-02-29', dados: {}, medico_id: null });
+  assert.equal((await api('PUT', `perio/${e.id}`, { medico_id: 999999 })).status, 400);
+});
+
+test('só o administrador elimina um exame', async () => {
+  const e = await ok('POST', `pacientes/${pid}/perio`, { data: '2026-07-01', dados: {} });
+  await ok('POST', 'users', { nome: 'Receção Perio', login: 'rececao-perio', perfil: 'rececao', password: 'provisoria-1' });
+  let ck = '';
+  for (const [url, corpo] of [['login', { login: 'rececao-perio', password: 'provisoria-1' }], ['password', { atual: 'provisoria-1', nova: 'definitiva-1' }]]) {
+    const r = await fetch(`${base}/api/${url}`, { method: 'POST', headers: { 'Content-Type': 'application/json', Cookie: ck }, body: JSON.stringify(corpo) });
+    assert.equal(r.status, 200);
+    ck = r.headers.get('set-cookie')?.split(';')[0] || ck;
+  }
+  assert.equal((await api('PUT', `perio/${e.id}`, { notas: 'pela receção' }, ck)).status, 200);
+  assert.equal((await api('DELETE', `perio/${e.id}`, null, ck)).status, 403);
+  await ok('DELETE', `perio/${e.id}`);
+});

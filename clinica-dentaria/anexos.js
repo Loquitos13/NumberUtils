@@ -44,10 +44,14 @@ async function carregar(req, pid, q, user) {
   if (!tipo) throw erro(415, 'Tipo de ficheiro não aceite (JPG, PNG, WebP ou PDF)');
   const ficheiro = `${pid}/${crypto.randomBytes(16).toString('hex')}.${tipo.ext}`;
   fs.mkdirSync(path.join(DIR, String(pid)), { recursive: true });
-  fs.writeFileSync(path.join(DIR, ficheiro), buf);
   const nome = String(q.get('nome') || `ficheiro.${tipo.ext}`).replace(/[\\/\0-\x1f]/g, '_').slice(0, 200);
-  const id = Number(D.run(`INSERT INTO anexos (paciente_id, nome_original, ficheiro, mime, tamanho, categoria, descricao, dente, data, criado_por)
-    VALUES (?,?,?,?,?,?,?,?,?,?)`, pid, nome, ficheiro, tipo.mime, buf.length, o.categoria, o.descricao, o.dente, o.data, user.id).lastInsertRowid);
+  // ficheiro primeiro, registo depois: se o INSERT falhar, apaga-se o ficheiro e não fica nada órfão
+  fs.writeFileSync(path.join(DIR, ficheiro), buf);
+  let id;
+  try {
+    id = Number(D.run(`INSERT INTO anexos (paciente_id, nome_original, ficheiro, mime, tamanho, categoria, descricao, dente, data, criado_por)
+      VALUES (?,?,?,?,?,?,?,?,?,?)`, pid, nome, ficheiro, tipo.mime, buf.length, o.categoria, o.descricao, o.dente, o.data, user.id).lastInsertRowid);
+  } catch (e) { fs.rmSync(path.join(DIR, ficheiro), { force: true }); throw e; }
   D.log(user.id, 'carregar anexo', `id=${id} paciente=${pid}`);
   return D.get('SELECT * FROM anexos WHERE id=?', id);
 }
@@ -65,18 +69,27 @@ function servir(res, id) {
   const f = caminho(a);
   if (!fs.existsSync(f)) throw erro(404, 'Ficheiro em falta no disco');
   const ascii = a.nome_original.replace(/[^\x20-\x7e]|["\\]/g, '_');
+  // o nome no disco é aleatório e nunca é reescrito: o conteúdo de um id não muda
   res.writeHead(200, { 'Content-Type': a.mime, 'Content-Length': fs.statSync(f).size, 'X-Content-Type-Options': 'nosniff',
+    'Cache-Control': 'private, max-age=31536000, immutable',
     'Content-Disposition': `inline; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(a.nome_original)}` });
-  fs.createReadStream(f).pipe(res);
+  fs.createReadStream(f).on('error', () => res.destroy()).pipe(res);
 }
 
-// ligação ao CRUD genérico: não se cria por aí; o DELETE apaga também o ficheiro
-function antesCrud(method, id, o) {
+// ligação ao CRUD genérico: não se cria por aí; o PUT é normalizado aqui; o DELETE (só administrador)
+// é feito aqui e devolve a resposta: apaga o registo e só depois o ficheiro
+function antesCrud(method, id, o, user) {
   if (method === 'POST') throw erro(405, 'Use o carregamento de ficheiros');
   if (method === 'PUT') validar(o);
   if (method === 'DELETE' && id) {
+    if (user.perfil !== 'admin') throw erro(403, 'Apenas administradores podem eliminar ficheiros');
     const a = D.get('SELECT * FROM anexos WHERE id=?', id);
-    if (a) fs.rmSync(caminho(a), { force: true });
+    if (!a) throw erro(404, 'Não encontrado');
+    const f = caminho(a);
+    D.run('DELETE FROM anexos WHERE id=?', id);
+    D.log(user.id, 'eliminar anexos', `id=${id}`);
+    fs.rmSync(f, { force: true });
+    return { ok: true };
   }
 }
 
