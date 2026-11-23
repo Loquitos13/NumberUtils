@@ -1,0 +1,128 @@
+'use strict';
+/* Periodontograma: 6 locais por dente (MV, V, DV, ML, L, DL), índices calculados no servidor */
+const PERIO_ARCOS = [['Maxilar', [18, 17, 16, 15, 14, 13, 12, 11, 21, 22, 23, 24, 25, 26, 27, 28]],
+  ['Mandíbula', [48, 47, 46, 45, 44, 43, 42, 41, 31, 32, 33, 34, 35, 36, 37, 38]]];
+// índices no array de 6 locais, pela ordem em que aparecem no ecrã (da esquerda para a direita)
+const perioLocais = (d, face) => {
+  const dir = [1, 4].includes(Math.floor(d / 10)); // lado direito do paciente: distal à esquerda
+  const l = face === 'V' ? [0, 1, 2] : [3, 4, 5];
+  return dir ? l.reverse() : l;
+};
+const perioVazio = () => ({ ps: Array(6).fill(null), rec: Array(6).fill(null), hem: Array(6).fill(0), pla: Array(6).fill(0), mob: 0, furca: 0, ausente: 0 });
+const perioCor = ps => ps >= 6 ? 'p6' : ps >= 4 ? 'p4' : '';
+
+// grelha de um arco; ro = só leitura (impressão)
+function perioArco(nome, dentes, dados, ant, ro) {
+  const D = d => dados[d] || perioVazio();
+  const cel = (d, html) => `<td class="${D(d).ausente ? 'aus' : ''}">${html}</td>`;
+  const val = (d, k, i) => {
+    const v = D(d)[k][i];
+    if (ro) return `<span class="${k === 'ps' ? perioCor(v) : ''}">${v ?? ''}</span>`;
+    return `<input class="pi ${k === 'ps' ? perioCor(v) : ''}" data-d="${d}" data-k="${k}" data-i="${i}" value="${v ?? ''}" inputmode="numeric" maxlength="3" aria-label="${d} ${k} ${'MV V DV ML L DL'.split(' ')[i]}" ${D(d).ausente ? 'disabled' : ''}>`;
+  };
+  const bool = (d, k, i) => ro ? (D(d)[k][i] ? '●' : '')
+    : `<input type="checkbox" class="pc ${k}" data-d="${d}" data-k="${k}" data-i="${i}" ${D(d)[k][i] ? 'checked' : ''} aria-label="${d} ${k === 'hem' ? 'hemorragia' : 'placa'} ${'MV V DV ML L DL'.split(' ')[i]}" ${D(d).ausente ? 'disabled' : ''}>`;
+  const linha = (rot, f, cls = '') => `<tr class="${cls}"><th>${rot}</th>${dentes.map(d => cel(d, f(d))).join('')}</tr>`;
+  const sitios = (lado, f) => d => `<div class="ps3">${perioLocais(d, lado).map(i => f(d, i)).join('')}</div>`;
+  const ni = (d, i) => { const x = D(d); return x.ps[i] != null && x.rec[i] != null ? x.ps[i] + x.rec[i] : ''; };
+  const face = (rot, f) => [
+    linha(`PS ${rot}`, sitios(f, (d, i) => val(d, 'ps', i))),
+    ant ? linha('PS anterior', sitios(f, (d, i) => `<span class="${perioCor(ant[d]?.ps?.[i])}">${ant[d]?.ps?.[i] ?? ''}</span>`), 'ant') : '',
+    linha(`Recessão ${rot}`, sitios(f, (d, i) => val(d, 'rec', i))),
+    linha(`NI ${rot}`, sitios(f, (d, i) => `<span data-ni="${d}-${i}">${ni(d, i)}</span>`), 'ni'),
+    linha('Hemorragia', sitios(f, (d, i) => bool(d, 'hem', i))),
+    linha('Placa', sitios(f, (d, i) => bool(d, 'pla', i))),
+  ].join('');
+  const num03 = k => d => ro ? (D(d)[k] || '') : `<input class="pi" data-d="${d}" data-k="${k}" value="${D(d)[k] || ''}" inputmode="numeric" maxlength="1" aria-label="${d} ${k}" ${D(d).ausente ? 'disabled' : ''}>`;
+  const lingual = nome === 'Maxilar' ? 'P' : 'L';
+  const corpo = [
+    linha('Ausente', d => ro ? (D(d).ausente ? '×' : '') : `<input type="checkbox" class="pa" data-d="${d}" ${D(d).ausente ? 'checked' : ''} aria-label="${d} ausente">`),
+    linha('Mobilidade', num03('mob')), linha('Furca', num03('furca')),
+  ];
+  const v = face('V', 'V'), l = face(lingual, 'L');
+  return `<h3>${nome}</h3><div class="tbl-wrap"><table class="perio">
+    <thead><tr><th></th>${dentes.map(d => `<th>${d}</th>`).join('')}</tr></thead>
+    <tbody>${nome === 'Maxilar' ? corpo.join('') + v + l : l + v + corpo.join('')}</tbody></table></div>`;
+}
+
+function perioLer(el) {
+  const dados = {};
+  for (const [, dentes] of PERIO_ARCOS) for (const d of dentes) dados[d] = perioVazio();
+  for (const i of $$('[data-d]', el)) {
+    const t = dados[i.dataset.d];
+    if (i.classList.contains('pa')) t.ausente = i.checked ? 1 : 0;
+    else if (i.type === 'checkbox') t[i.dataset.k][i.dataset.i] = i.checked ? 1 : 0;
+    else if (i.dataset.i == null) t[i.dataset.k] = i.value === '' ? 0 : Number(i.value);
+    else t[i.dataset.k][i.dataset.i] = i.value === '' ? null : Number(i.value);
+  }
+  return dados;
+}
+
+function perioFactos(ix, ant) {
+  const f = (l, k, suf, d) => {
+    const dif = ant ? ix[k] - ant[k] : 0;
+    return `<div class="fact"><div class="l">${l}</div><div class="v">${num(ix[k], d)}${suf}</div>${ant ? `<div class="small">${dif > 0 ? '+' : ''}${num(dif, d)} vs. anterior</div>` : ''}</div>`;
+  };
+  return `<div class="facts">${f('Índice de placa', 'placa_pct', '%', 1)}${f('Índice de hemorragia', 'hemorragia_pct', '%', 1)}${f('Profundidade média', 'ps_media', ' mm', 2)}${f('Locais ≥ 4 mm', 'locais_4mm', '', 0)}</div>`;
+}
+
+async function tabPerio(el, p, st = {}) {
+  const exames = await GET(`pacientes/${p.id}/perio`);
+  const cur = st.id === 'novo' ? null : byId(exames, st.id) || exames[0] || null;
+  const outros = exames.filter(e => e !== cur);
+  const comp = st.comp === '' ? null : byId(outros, st.comp) || (cur ? outros.find(e => e.data <= cur.data) : outros[0]) || null;
+  // exame novo: parte dos dentes ausentes do último exame
+  const dados = cur ? cur.dados : Object.fromEntries(Object.entries(exames[0]?.dados || {}).filter(([, d]) => d.ausente).map(([k]) => [k, { ...perioVazio(), ausente: 1 }]));
+  const rotulo = e => `${fmtDate(e.data)}${e.medico_nome ? ' · ' + e.medico_nome : ''}`;
+  el.innerHTML = `<div class="card"><div class="row end">
+      ${fld('Exame', `<select id="pe-sel"><option value="novo" ${cur ? '' : 'selected'}>Novo exame</option>${exames.map(e => `<option value="${e.id}" ${e === cur ? 'selected' : ''}>${esc(rotulo(e))}</option>`).join('')}</select>`)}
+      ${fld('Comparar com', `<select id="pe-comp"><option value="">— sem comparação —</option>${outros.map(e => `<option value="${e.id}" ${e === comp ? 'selected' : ''}>${esc(rotulo(e))}</option>`).join('')}</select>`)}
+      ${fld('Data', `<input type="date" id="pe-data" value="${esc(cur ? cur.data : isoDate())}">`)}
+      ${fld('Médico', sel('pe-med', opts(ativos(L().medicos), cur ? cur.medico_id : App.user.medico_id || p.medico_id, { empty: '—' }), 'id="pe-med"'))}
+      <div class="spacer"></div>
+      ${cur ? '<button id="pe-del" class="icon" title="Eliminar exame" aria-label="Eliminar exame"><i data-ic="trash"></i></button><button id="pe-print" class="icon" title="Imprimir exame" aria-label="Imprimir exame"><i data-ic="printer"></i></button>' : ''}
+      <button class="primary" id="pe-save">${cur ? 'Guardar alterações' : 'Guardar exame'}</button>
+    </div></div>
+    ${cur ? perioFactos(cur.indices, comp && comp.indices) : ''}
+    <div class="card" id="pe-grid">${PERIO_ARCOS.map(([n, ds]) => perioArco(n, ds, dados, comp && comp.dados)).join('')}
+      <div class="muted small" style="margin-top:6px">PS: profundidade de sondagem · NI: nível de inserção (PS + recessão) · <span class="p4">≥ 4 mm</span> <span class="p6">≥ 6 mm</span> · Enter avança para o local seguinte</div></div>
+    <div class="card">${fld('Notas', `<textarea id="pe-notas">${esc(cur ? cur.notas : '')}</textarea>`)}</div>`;
+  const grid = $('#pe-grid', el);
+  const redo = s => tabPerio(el, p, s);
+  $('#pe-sel', el).onchange = e => redo({ id: e.target.value });
+  $('#pe-comp', el).onchange = e => redo({ id: cur ? cur.id : 'novo', comp: e.target.value });
+  grid.addEventListener('keydown', e => {
+    if (e.key !== 'Enter' || !e.target.matches('input')) return;
+    e.preventDefault();
+    const todos = $$('input:not(:disabled)', grid); const n = todos[todos.indexOf(e.target) + 1];
+    if (n) { n.focus(); if (n.select) n.select(); }
+  });
+  grid.addEventListener('input', e => {
+    const i = e.target; if (!i.classList.contains('pi')) return;
+    if (i.dataset.k === 'ps') i.className = `pi ${perioCor(Number(i.value || 0))}`;
+    if (i.dataset.i != null) {
+      const v = k => $(`input[data-d="${i.dataset.d}"][data-k="${k}"][data-i="${i.dataset.i}"]`, grid).value;
+      const ni = $(`[data-ni="${i.dataset.d}-${i.dataset.i}"]`, grid);
+      if (ni) ni.textContent = v('ps') !== '' && v('rec') !== '' ? Number(v('ps')) + Number(v('rec')) : '';
+    }
+  });
+  grid.addEventListener('change', e => {
+    if (!e.target.classList.contains('pa')) return;
+    const d = e.target.dataset.d;
+    $$(`[data-d="${d}"]:not(.pa)`, grid).forEach(x => { x.disabled = e.target.checked; x.closest('td').classList.toggle('aus', e.target.checked); });
+    e.target.closest('td').classList.toggle('aus', e.target.checked);
+  });
+  $('#pe-save', el).onclick = async () => {
+    const body = { data: $('#pe-data', el).value, medico_id: Number($('#pe-med', el).value) || null, notas: $('#pe-notas', el).value, dados: perioLer(grid) };
+    const e = await act(() => cur ? PUT(`perio/${cur.id}`, body) : POST(`pacientes/${p.id}/perio`, body), 'Exame guardado').catch(() => null);
+    if (e) redo({ id: e.id, comp: $('#pe-comp', el).value });
+  };
+  if (!cur) return;
+  $('#pe-del', el).onclick = async () => {
+    if (!await confirmDlg(`Eliminar o exame de ${fmtDate(cur.data)}?`, 'Eliminar', true)) return;
+    await act(() => DEL(`perio/${cur.id}`), 'Exame eliminado'); redo({});
+  };
+  $('#pe-print', el).onclick = () => printHTML(`<div class="doc"><div class="dh">${cabecalhoClinica()}<div><h2>Periodontograma</h2>${esc(p.nome)} · processo n.º ${esc(p.numero)}<br>${esc(rotulo(cur))}</div></div>
+    ${perioFactos(cur.indices, comp && comp.indices)}${PERIO_ARCOS.map(([n, ds]) => perioArco(n, ds, cur.dados, null, true)).join('')}
+    ${cur.notas ? `<p>${esc(cur.notas).replace(/\n/g, '<br>')}</p>` : ''}</div>`);
+}

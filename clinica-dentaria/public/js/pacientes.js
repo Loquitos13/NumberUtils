@@ -79,7 +79,7 @@ function escolherFoto(pid) {
 }
 
 // ---------- ficha do paciente ----------
-const FICHA_TABS = [['resumo', 'Resumo'], ['odontograma', 'Odontograma'], ['tratamentos', 'Tratamentos'], ['anamnese', 'Anamnese'],
+const FICHA_TABS = [['resumo', 'Resumo'], ['odontograma', 'Odontograma'], ['perio', 'Periodontograma'], ['tratamentos', 'Tratamentos'], ['anamnese', 'Anamnese'],
   ['notas', 'Notas clínicas'], ['marcacoes', 'Marcações'], ['orcamentos', 'Orçamentos'], ['cc', 'Conta corrente'], ['proteses', 'Próteses']];
 
 route('paciente', async (view, [id, tab = 'resumo']) => {
@@ -111,7 +111,7 @@ route('paciente', async (view, [id, tab = 'resumo']) => {
   $('#pf-foto').onclick = () => escolherFoto(p.id);
   $('#pf-print').onclick = () => imprimirFicha(p);
   const body = $('#pf-body');
-  const fns = { resumo: tabResumo, odontograma: tabOdonto, tratamentos: tabTratamentos, anamnese: tabAnamnese, notas: tabNotas,
+  const fns = { resumo: tabResumo, odontograma: tabOdonto, perio: tabPerio, tratamentos: tabTratamentos, anamnese: tabAnamnese, notas: tabNotas,
     marcacoes: tabMarcacoes, orcamentos: tabOrcamentosPac, cc: tabContaCorrente, proteses: tabProtesesPac };
   await (fns[tab] || tabResumo)(body, p);
 });

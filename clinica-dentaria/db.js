@@ -153,6 +153,9 @@ CREATE TABLE IF NOT EXISTS bloqueios (
 CREATE TABLE IF NOT EXISTS lista_espera (
   id INTEGER PRIMARY KEY, paciente_id INTEGER REFERENCES pacientes(id) ON DELETE CASCADE, medico_id INTEGER,
   servico_id INTEGER, preferencia TEXT, notas TEXT, estado TEXT DEFAULT 'aguarda', criado_em TEXT DEFAULT (datetime('now','localtime')));
+CREATE TABLE IF NOT EXISTS perio_exames (
+  id INTEGER PRIMARY KEY, paciente_id INTEGER REFERENCES pacientes(id) ON DELETE CASCADE, data TEXT NOT NULL,
+  medico_id INTEGER, dados TEXT NOT NULL, notas TEXT, criado_em TEXT DEFAULT (datetime('now','localtime')));
 `);
 
 // migrações simples (colunas novas) para bases de dados criadas por versões anteriores

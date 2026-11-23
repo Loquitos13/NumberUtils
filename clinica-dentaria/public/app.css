@@ -385,3 +385,17 @@ table.t tr[class*="row-"]:hover td { background: var(--hover); }
 
 /* ---------- primeiro acesso ---------- */
 #trocar-pw p { margin: 0 0 12px; }
+
+/* ---------- periodontograma ---------- */
+table.perio { border-collapse: collapse; font-variant-numeric: tabular-nums; font-size: .82rem; margin-bottom: 10px; }
+table.perio th { font-weight: 600; color: var(--graphite); padding: 2px 4px; white-space: nowrap; text-align: left; }
+table.perio thead th { text-align: center; border-bottom: 1px solid var(--rule); }
+table.perio td { padding: 1px 2px; border-left: 1px solid var(--rule-2); text-align: center; }
+table.perio td.aus { background: var(--rule-2); }
+table.perio tr.ant td, table.perio tr.ni td { color: var(--muted); }
+.perio .ps3 { display: flex; gap: 1px; justify-content: center; min-width: 54px; }
+.perio .ps3 > * { width: 18px; text-align: center; }
+.perio input.pi { width: 18px; min-height: 20px; padding: 0; text-align: center; border-radius: 2px; }
+.perio td > input.pi { width: 26px; }
+.p4 { background: var(--amber-wash); color: var(--amber); font-weight: 600; }
+.p6 { background: var(--red-wash); color: var(--red); font-weight: 600; }
