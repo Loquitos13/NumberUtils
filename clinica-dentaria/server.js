@@ -837,6 +837,10 @@ async function api(req, res, url) {
       }
       break;
     }
+    case 'importar':
+      requireAdmin(user);
+      if (m === 'POST' && r1 === 'pacientes') return require('./importar').importarPacientes(body, user);
+      break;
     case 't': return crud(m, r1, r2_ && /^\d+$/.test(r2_) ? Number(r2_) : null, q, body, user);
 
     case 'pacientes': {
