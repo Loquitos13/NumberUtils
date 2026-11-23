@@ -9,6 +9,7 @@ const D = require('./db');
 const COM = require('./comunicacao');
 const ANAMNESE = require('./anamnese');
 const ANX = require('./anexos');
+const PERIO = require('./perio');
 const { all, get, run, tx } = D;
 
 const PORT = Number(process.env.PORT) || 3000;
@@ -848,6 +849,7 @@ async function api(req, res, url) {
     case 't': return crud(m, r1, r2_ && /^\d+$/.test(r2_) ? Number(r2_) : null, q, body, user);
 
     case 'pacientes': {
+      if (id && r2_ === 'perio') { if (!get('SELECT 1 FROM pacientes WHERE id=?', id)) throw new HttpError(404, 'Paciente não encontrado'); return PERIO.doPaciente(m, id, body, user); }
       if (m === 'GET' && !id) {
         const s = (q.get('q') || '').trim();
         const where = []; const params = [];
@@ -910,6 +912,7 @@ async function api(req, res, url) {
       D.log(user.id, 'editar anamnese', `paciente=${id}`);
       return get('SELECT * FROM anamnese WHERE paciente_id=?', id);
     }
+    case 'perio': if (id) return PERIO.doExame(m, id, body, user); break;
     case 'notas': {
       if (m === 'POST') {
         if (!body.texto) throw new HttpError(400, 'Escreva a nota');
