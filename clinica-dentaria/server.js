@@ -10,7 +10,8 @@ const COM = require('./comunicacao');
 const ANAMNESE = require('./anamnese');
 const ANX = require('./anexos');
 const PERIO = require('./perio');
-const { all, get, run, tx } = D;
+const IMPORTAR = require('./importar');
+const { all, get, run, tx, validarNif } = D;
 
 const PORT = Number(process.env.PORT) || 3000;
 const PUBLIC = path.join(__dirname, 'public');
@@ -165,16 +166,6 @@ function crud(method, table, id, query, body, user) {
     return { ok: true };
   }
   throw new HttpError(405, 'Método não suportado');
-}
-
-function validarNif(nif) {
-  if (!nif) return;
-  const s = String(nif).replace(/\s/g, '');
-  if (!/^\d{9}$/.test(s)) throw new HttpError(400, 'NIF inválido: deve ter 9 dígitos');
-  let soma = 0;
-  for (let i = 0; i < 8; i++) soma += Number(s[i]) * (9 - i);
-  let ctrl = 11 - (soma % 11); if (ctrl >= 10) ctrl = 0;
-  if (ctrl !== Number(s[8])) throw new HttpError(400, 'NIF inválido: dígito de controlo incorreto');
 }
 
 // ---------- feriados ----------
@@ -848,7 +839,7 @@ async function api(req, res, url) {
     }
     case 'importar':
       requireAdmin(user);
-      if (m === 'POST' && r1 === 'pacientes') return require('./importar').importarPacientes(body, user);
+      if (m === 'POST' && r1 === 'pacientes') return IMPORTAR.importarPacientes(body, user);
       break;
     case 't': return crud(m, r1, r2_ && /^\d+$/.test(r2_) ? Number(r2_) : null, q, body, user);
 
@@ -1144,4 +1135,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { lembretesAutomaticos, enviarMensagens, server, feriadosAno, pascoa, validarNif };
+module.exports = { lembretesAutomaticos, enviarMensagens, server, feriadosAno, pascoa };

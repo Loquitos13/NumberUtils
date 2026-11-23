@@ -11,7 +11,7 @@ const opcoes = p => String(p.opcoes || '').split(';').map(s => s.trim()).filter(
 function validarPergunta(o, atual = {}) {
   const p = { ...atual, ...o };
   if (!String(p.texto || '').trim()) throw erro('Escreva o texto da pergunta');
-  if (!TIPOS.includes(p.tipo || 'sn')) throw erro('Tipo inválido (sim/não, texto ou escolha)');
+  if (p.tipo !== undefined && !TIPOS.includes(p.tipo)) throw erro('Tipo inválido (sim/não, texto ou escolha)');
   if (p.tipo === 'escolha' && !opcoes(p).length) throw erro('Indique as opções, separadas por ";"');
 }
 
@@ -23,12 +23,14 @@ function respostas(pid) {
 // body: { pergunta_id: valor }; valor vazio apaga a resposta
 function guardar(pid, body, user) {
   const ps = new Map(D.all('SELECT * FROM anamnese_perguntas').map(p => [p.id, p]));
+  const antes = respostas(pid);
   const linhas = Object.entries(body || {}).map(([k, v]) => {
     const p = ps.get(Number(k));
     if (!p) throw erro(`Pergunta desconhecida (${k})`);
     const valor = v === null || v === undefined ? '' : String(v).trim();
     if (valor && p.tipo === 'sn' && !SN.includes(valor)) throw erro(`"${p.texto}": responda sim ou não`);
-    if (valor && p.tipo === 'escolha' && !opcoes(p).includes(valor)) throw erro(`"${p.texto}": opção inválida`);
+    // uma resposta já guardada vale mesmo que a opção tenha sido retirada da pergunta
+    if (valor && p.tipo === 'escolha' && !opcoes(p).includes(valor) && valor !== antes[p.id]) throw erro(`"${p.texto}": opção inválida`);
     if (valor.length > 2000) throw erro(`"${p.texto}": resposta demasiado longa`);
     return [p.id, valor];
   });

@@ -146,9 +146,6 @@ async function odontograma(el, p, opts = {}) {
 route('consulta', async (view, [id]) => {
   const m = await GET('marcacoes/' + id);
   const p = await GET(`pacientes/${m.paciente_id}/resumo`);
-  const a = p.anamnese || {};
-  const alertas = [a.alergias && `Alergias: ${a.alergias}`, a.anticoagulantes && 'Anticoagulantes', a.cardiaco && 'Doença cardíaca', a.diabetes && 'Diabetes',
-    a.hipertensao && 'Hipertensão', a.gravidez && 'Gravidez', a.hepatite && 'Hepatite', ...p.alertas_extra].filter(Boolean);
   const est = n => L().estados.find(e => e.nome === n);
   const concl = est('Concluída') || L().estados.find(e => e.categoria === 'REALIZADAS');
   const fluxo = [est('Presente'), est('Em consulta'), concl].filter(Boolean);
@@ -167,7 +164,7 @@ route('consulta', async (view, [id]) => {
         <button id="cs-edit">Editar marcação</button>
         <button id="cs-next">Marcar próxima</button>
       </div>
-      ${alertas.length ? `<div class="alert danger" style="margin:10px 0 0">${alertas.map(esc).join(' · ')}</div>` : ''}
+      ${alertasHtml(p)}
     </div>
     <div class="consulta-body">
       <div id="cs-odonto"></div>

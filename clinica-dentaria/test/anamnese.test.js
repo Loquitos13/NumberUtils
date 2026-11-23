@@ -48,6 +48,8 @@ test('só o administrador cria perguntas; tipo e opções validados', async () =
   escolha = await ok('POST', 't/anamnese_perguntas', { texto: 'Grupo sanguíneo', tipo: 'escolha', opcoes: 'A; B; AB; O', ordem: 50 });
   assert.equal(escolha.alerta, 0);
   assert.equal((await api('PUT', 't/anamnese_perguntas/' + escolha.id, { tipo: 'nada' })).status, 400);
+  assert.equal((await api('PUT', 't/anamnese_perguntas/' + escolha.id, { tipo: '' })).status, 400);
+  assert.equal((await api('PUT', 't/anamnese_perguntas/' + escolha.id, { tipo: null })).status, 400);
 });
 
 test('grava e lê as respostas; valores inválidos dão 400', async () => {
@@ -75,4 +77,13 @@ test('desativar uma pergunta guarda a resposta mas tira-a dos alertas', async ()
   assert.deepEqual((await ok('GET', `pacientes/${pid}/resumo`)).alertas_extra, ['Próteses articulares']);
   assert.equal((await ok('GET', `pacientes/${pid}/anamnese-extra`))[coag.id], 'sim');
   assert.equal((await api('DELETE', 't/anamnese_perguntas/' + coag.id)).status, 409); // com respostas não se apaga
+});
+
+test('resposta de escolha que deixou de ser opção mantém-se ao gravar de novo; nova inválida continua recusada', async () => {
+  const q = await ok('POST', 't/anamnese_perguntas', { texto: 'Escova', tipo: 'escolha', opcoes: 'manual; elétrica' });
+  await ok('PUT', `pacientes/${pid}/anamnese-extra`, { [q.id]: 'manual' });
+  await ok('PUT', 't/anamnese_perguntas/' + q.id, { opcoes: 'elétrica; sónica' });
+  await ok('PUT', `pacientes/${pid}/anamnese-extra`, { [q.id]: 'manual' });
+  assert.equal((await ok('GET', `pacientes/${pid}/anamnese-extra`))[q.id], 'manual');
+  assert.equal((await api('PUT', `pacientes/${pid}/anamnese-extra`, { [q.id]: 'outra' })).status, 400);
 });

@@ -27,24 +27,6 @@ const IMP_CAMPOS = [
 const impNorm = s => String(s).normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]/g, '');
 const impSugestao = h => (IMP_CAMPOS.find(c => c[2].includes(impNorm(h))) || [''])[0];
 
-// mesma leitura que parseCsv em importar.js (servidor), só para a pré-visualização
-function impParse(texto) {
-  texto = texto.replace(/^﻿/, '');
-  const prim = texto.slice(0, texto.indexOf('\n') + 1 || texto.length);
-  const sep = (prim.match(/;/g) || []).length >= (prim.match(/,/g) || []).length ? ';' : ',';
-  const linhas = []; let linha = [], campo = '', aspas = false;
-  for (let i = 0; i < texto.length; i++) {
-    const c = texto[i];
-    if (aspas) { if (c !== '"') campo += c; else if (texto[i + 1] === '"') { campo += '"'; i++; } else aspas = false; }
-    else if (c === '"') aspas = true;
-    else if (c === sep) { linha.push(campo); campo = ''; }
-    else if (c === '\n' || c === '\r') { if (c === '\r' && texto[i + 1] === '\n') i++; linha.push(campo); linhas.push(linha); linha = []; campo = ''; }
-    else campo += c;
-  }
-  if (campo || linha.length) { linha.push(campo); linhas.push(linha); }
-  return linhas;
-}
-
 function importarSection(body, admin) {
   if (!admin) { body.innerHTML = '<div class="empty">Sem permissão</div>'; return; }
   body.innerHTML = `<h3>Importar pacientes</h3>
@@ -71,7 +53,7 @@ function importarSection(body, admin) {
     if (f.size > 3.5e6) return toast('Ficheiro demasiado grande (máx. 3,5 MB). Divida-o em partes.', true);
     const bytes = new Uint8Array(await f.arrayBuffer());
     let texto; try { texto = new TextDecoder('utf-8', { fatal: true }).decode(bytes); } catch { texto = new TextDecoder('windows-1252').decode(bytes); }
-    linhas = impParse(texto);
+    try { linhas = parseCsv(texto); } catch (err) { $('#imp-prev').innerHTML = ''; return toast(err.message, true); } // parseCsv: js/csv.js, o mesmo do servidor
     if (linhas.length < 2) { $('#imp-prev').innerHTML = '<div class="empty">O ficheiro não tem linhas de dados</div>'; return; }
     let bin = ''; for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
     csv = btoa(bin); // o servidor deteta o encoding a partir dos bytes
