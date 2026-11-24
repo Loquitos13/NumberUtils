@@ -6,7 +6,8 @@
   "private": true,
   "scripts": {
     "start": "node server.js",
-    "test": "node --test"
+    "test": "node --test",
+    "e2e": "node e2e/usabilidade.js"
   },
   "engines": {
     "node": ">=22.13"
