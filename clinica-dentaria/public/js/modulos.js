@@ -63,7 +63,7 @@ function editProtese(r, paciente) {
   const lk = L(); r = r || { data_emissao: isoDate(), data_prevista: addDays(isoDate(), 10), fase: 'pedido', medico_id: paciente?.medico_id || App.user.medico_id, paciente_id: paciente?.id, paciente_nome: paciente?.nome };
   const next = { pedido: ['enviado', 'Marcar enviado', 'data_envio'], enviado: ['recebido', 'Marcar recebido', 'data_rececao'], em_prova: ['recebido', 'Recebido (após prova)', 'data_rececao'], recebido: ['entregue', 'Marcar entregue', 'data_entrega'] }[r.fase];
   const buttons = [];
-  if (r.id) buttons.push({ label: 'Eliminar', cls: 'danger', left: true, onClick: async () => { if (!await confirmDlg('Eliminar este trabalho?', 'Eliminar', true)) return false; await DEL('t/proteses/' + r.id); render(); } });
+  if (r.id && App.user.perfil === 'admin') buttons.push({ label: 'Eliminar', cls: 'danger', left: true, onClick: async () => { if (!await confirmDlg('Eliminar este trabalho?', 'Eliminar', true)) return false; await DEL('t/proteses/' + r.id); render(); } });
   if (r.id) buttons.push({ label: 'Guia', onClick: () => { imprimirGuiaProtese(r); return false; } });
   buttons.push({ label: 'Cancelar' });
   const save = async (c, extra = {}) => {

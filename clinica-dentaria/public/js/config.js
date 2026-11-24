@@ -182,7 +182,7 @@ route('config', async (view, [sec = 'clinica']) => {
       const f = readForm(form);
       for (const k of ['confirmacao_canais', 'lembrete_canais']) { f[k] = [f[k + '_sms'] && 'sms', f[k + '_email'] && 'email'].filter(Boolean).join(','); delete f[k + '_sms']; delete f[k + '_email']; }
       f.confirmacao_auto = String(f.confirmacao_auto); f.lembrete_auto = String(f.lembrete_auto);
-      await PUT('config', f); await refreshLookups();
+      await PUT('config', f); await refreshLookups(); App.dirty = false;
     };
     $('#msg-save').onclick = async () => { await act(guardar, 'Configuração guardada'); };
     $('#msg-test-email').onclick = async () => { await act(guardar); const para = await promptDlg('Testar e-mail', 'Enviar teste para', c.smtp_de || ''); if (para) await act(() => POST('sms/teste', { canal: 'email', para }), 'E-mail de teste enviado'); };
