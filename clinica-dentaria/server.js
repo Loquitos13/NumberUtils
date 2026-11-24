@@ -11,6 +11,7 @@ const ANAMNESE = require('./anamnese');
 const ANX = require('./anexos');
 const PERIO = require('./perio');
 const IMPORTAR = require('./importar');
+const ZIP = require('./zip');
 const { all, get, run, tx, validarNif } = D;
 
 const PORT = Number(process.env.PORT) || 3000;
@@ -634,15 +635,26 @@ async function lembretesAutomaticos() {
 }
 
 // ---------- backup ----------
-function backup(res) {
-  const tmp = path.join(os.tmpdir(), `clinica-backup-${Date.now()}.db`);
-  D.db.exec(`VACUUM INTO '${tmp.replace(/'/g, "''")}'`);
-  const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-');
-  res.writeHead(200, { 'Content-Type': 'application/octet-stream', 'Content-Disposition': `attachment; filename="clinica-backup-${stamp}.db"` });
-  const s = fs.createReadStream(tmp);
-  s.on('error', () => res.destroy());
-  s.pipe(res);
-  s.on('close', () => fs.unlink(tmp, () => {}));
+// ZIP com clinica.db (cópia VACUUM INTO) e a pasta anexos/
+async function backup(res) {
+  // dentro de DATA_DIR (não em /tmp, legível por todos); apagada no fim
+  const tmp = path.join(D.DATA_DIR, `.clinica-backup-${Date.now()}.db`);
+  try {
+    D.db.exec(`VACUUM INTO '${tmp.replace(/'/g, "''")}'`);
+    const anx = path.join(D.DATA_DIR, 'anexos');
+    const entradas = [{ nome: 'clinica.db', ficheiro: tmp }];
+    for (const rel of fs.existsSync(anx) ? fs.readdirSync(anx, { recursive: true }) : []) {
+      const f = path.join(anx, rel);
+      if (fs.statSync(f).isFile()) entradas.push({ nome: 'anexos/' + rel.split(path.sep).join('/'), ficheiro: f });
+    }
+    ZIP.verificar(entradas);
+    const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-');
+    res.writeHead(200, { 'Content-Type': 'application/zip', 'Content-Disposition': `attachment; filename="clinica-backup-${stamp}.zip"` });
+    await ZIP.escrever(res, entradas);
+  } catch (e) {
+    if (!res.headersSent) throw e; // ainda dá para responder com o erro normal
+    console.error('backup:', e.message); res.destroy();
+  } finally { fs.rmSync(tmp, { force: true }); }
 }
 
 // ---------- listagens ----------
@@ -1137,7 +1149,7 @@ async function api(req, res, url) {
     case 'anexos': if (m === 'GET' && id && r2_ === 'ficheiro') { ANX.servir(res, id); return undefined; } break;
     case 'logs': requireAdmin(user);
       return all('SELECT l.*, u.nome user_nome FROM logs l LEFT JOIN users u ON u.id=l.user_id ORDER BY l.id DESC LIMIT 1000');
-    case 'backup': requireAdmin(user); backup(res); D.log(user.id, 'backup', ''); return undefined;
+    case 'backup': requireAdmin(user); await backup(res); D.log(user.id, 'backup', ''); return undefined;
   }
   throw new HttpError(404, 'Rota não encontrada');
 }
