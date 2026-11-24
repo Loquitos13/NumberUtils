@@ -21,7 +21,7 @@ function perioArco(nome, dentes, dados, anterior, soLeitura) {
   const medida = (d, k, i) => {
     const v = dente(d)[k][i];
     if (soLeitura) return `<span class="${k === 'ps' ? perioCor(v) : ''}">${v ?? ''}</span>`;
-    return `<input class="perio-num ${k === 'ps' ? perioCor(v) : ''}" data-d="${d}" data-k="${k}" data-i="${i}" value="${v ?? ''}" inputmode="numeric" maxlength="3" aria-label="${d} ${k} ${PERIO_SITIOS[i]}" ${off(d)}>`;
+    return `<input class="perio-num ${k === 'ps' ? perioCor(v) : ''}" data-d="${d}" data-k="${k}" data-i="${i}" value="${v ?? ''}" inputmode="numeric" maxlength="3" aria-label="${d} ${k === 'ps' ? 'profundidade de sondagem' : 'recessão'} ${PERIO_SITIOS[i]}" ${off(d)}>`;
   };
   const marca = (d, k, i) => soLeitura ? (dente(d)[k][i] ? '●' : '')
     : `<input type="checkbox" class="perio-chk ${k}" data-d="${d}" data-k="${k}" data-i="${i}" ${dente(d)[k][i] ? 'checked' : ''} aria-label="${d} ${k === 'hem' ? 'hemorragia' : 'placa'} ${PERIO_SITIOS[i]}" ${off(d)}>`;
@@ -121,11 +121,14 @@ async function tabPerio(el, p, st = {}) {
     $$(`[data-d="${d}"]:not(.perio-aus)`, grid).forEach(x => { x.disabled = e.target.checked; x.closest('td').classList.toggle('aus', e.target.checked); });
     e.target.closest('td').classList.toggle('aus', e.target.checked);
   });
-  $('#pe-save', el).onclick = async () => {
+  $('#pe-save', el).onclick = async ev => {
+    const btn = ev.currentTarget; if (btn.disabled) return; // duplo clique não cria dois exames
     const mau = $$('.perio-num:not(:disabled)', grid).find(i => !perioValido(i.value));
     if (mau) { mau.focus(); return toast(`Valor inválido em ${mau.getAttribute('aria-label')}: use só números`, true); }
     const body = { data: $('#pe-data', el).value, medico_id: Number($('#pe-med', el).value) || null, notas: $('#pe-notas', el).value, dados: perioLer(grid) };
+    btn.disabled = true;
     const e = await act(() => cur ? PUT(`perio/${cur.id}`, body) : POST(`pacientes/${p.id}/perio`, body), 'Exame guardado').catch(() => null);
+    btn.disabled = false;
     if (e) { App.dirty = false; redo({ id: e.id, comp: $('#pe-comp', el).value }); }
   };
   if (!cur) return;

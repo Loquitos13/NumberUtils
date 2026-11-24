@@ -5,7 +5,7 @@ const anxUrl = a => `/api/anexos/${a.id}/ficheiro`;
 async function tabAnexos(el, p, cat = '') {
   const lista = await GET(`t/anexos?paciente_id=${p.id}${cat ? '&categoria=' + encodeURIComponent(cat) : ''}`);
   el.innerHTML = `<div class="card"><div class="row between" style="margin-bottom:10px">
-    <div class="seg">${['', ...L().anexo_categorias].map(c => `<button class="${c === cat ? 'on' : ''}" data-cat="${esc(c)}">${esc(c || 'Todos')}</button>`).join('')}</div>
+    <div class="seg">${['', ...L().anexo_categorias].map(c => `<button class="${c === cat ? 'on' : ''}" aria-pressed="${c === cat}" data-cat="${esc(c)}">${esc(c || 'Todos')}</button>`).join('')}</div>
     <button class="primary" id="anx-new">Carregar ficheiro</button></div>
     ${lista.length ? `<div class="anx-grid">${lista.map(a => `<figure class="anx" data-id="${a.id}" tabindex="0" title="${esc(a.nome_original)}">
       ${a.mime.startsWith('image/') ? `<img src="${anxUrl(a)}" alt="${esc(a.descricao || a.nome_original)}" loading="lazy">` : '<div class="anx-pdf">PDF</div>'}

@@ -95,7 +95,7 @@ async function crudSection(body, def) {
 route('config', async (view, [sec = 'clinica']) => {
   const admin = App.user.perfil === 'admin';
   view.innerHTML = `<div class="page-head"><h1>Configuração</h1></div>
-    <div class="subnav">${CFG_SECTIONS.map(([k, l]) => `<button class="${k === sec ? 'active' : ''}" data-s="${k}">${l}</button>`).join('')}</div>
+    <div class="subnav">${CFG_SECTIONS.map(([k, l]) => `<button class="${k === sec ? 'active' : ''}" ${k === sec ? 'aria-current="page"' : ''} data-s="${k}">${l}</button>`).join('')}</div>
     ${admin ? '' : '<div class="alert">Apenas administradores podem alterar a configuração. Está em modo de consulta.</div>'}
     <div class="card" id="cf-body"></div>`;
   $$('.subnav button', view).forEach(b => b.onclick = () => go('#/config/' + b.dataset.s));
@@ -222,7 +222,7 @@ route('config', async (view, [sec = 'clinica']) => {
   if (sec === 'backup') {
     body.innerHTML = `<h3>Cópia de segurança</h3><p>Descarrega um ficheiro <strong>.zip</strong> com a base de dados (pacientes, agenda, faturação, stocks e configuração) e os ficheiros dos pacientes (RX, fotos, documentos).
       Guarde-o num disco externo ou na nuvem. Recomenda-se uma cópia diária.</p>
-      <p><a class="btn primary" href="/api/backup" ${admin ? '' : 'onclick="return false" style="opacity:.5"'}>Descarregar cópia de segurança</a></p>
+      <p><a class="btn primary" href="/api/backup" ${admin ? '' : 'onclick="return false" aria-disabled="true" style="opacity:.5"'}>Descarregar cópia de segurança</a></p>
       <p class="muted small">Para restaurar: extraia o .zip, pare o servidor, substitua <code>data/clinica.db</code> e a pasta <code>data/anexos</code> pelos do .zip e volte a iniciar.</p>`;
   }
 });

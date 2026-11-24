@@ -1,8 +1,8 @@
 'use strict';
 /* Faturação, recibos, conta corrente e orçamentos */
 const METODOS = ['Numerário', 'Multibanco', 'MB Way', 'Transferência', 'Cheque', 'Cartão de crédito'];
-const TIPO_NOME = { FT: 'Fatura', FS: 'Fatura Simplificada', FR: 'Fatura-Recibo', ND: 'Nota de Débito', NC: 'Nota de Crédito', RC: 'Recibo', PF: 'Fatura Pró-forma', OR: 'Orçamento' };
-const TIPOS_EMITIR = [['FR', 'Fatura-Recibo · pago no ato'], ['FT', 'Fatura · paga depois'], ['FS', 'Fatura Simplificada · até 100 €'], ['PF', 'Fatura Pró-forma · sem valor fiscal']];
+const TIPO_NOME = { FT: 'Fatura', FS: 'Fatura simplificada', FR: 'Fatura-recibo', ND: 'Nota de débito', NC: 'Nota de crédito', RC: 'Recibo', PF: 'Fatura pró-forma', OR: 'Orçamento' };
+const TIPOS_EMITIR = [['FR', 'Fatura-recibo · pago no ato'], ['FT', 'Fatura · paga depois'], ['FS', 'Fatura simplificada · até 100 €'], ['PF', 'Fatura pró-forma · sem valor fiscal']];
 const DEBITO = ['FT', 'FS', 'FR', 'ND'];
 function docChip(tipo) { return `<span class="dt dt-${esc(tipo)}" title="${esc(TIPO_NOME[tipo] || tipo)}">${esc(tipo)}</span>`; }
 
@@ -54,12 +54,12 @@ function linhasEditor(root, linhas, onChange) {
     let base = 0, iva = 0;
     $$('tr[data-i]', root).forEach(tr => {
       const l = linhas[Number(tr.dataset.i)];
-      const b = (Number(l.qtd) || 0) * (Number(l.preco) || 0) * (1 - (Number(l.desconto_pct) || 0) / 100);
-      const v = b * (Number(l.iva) || 0) / 100;
-      base += b; iva += v; $('[data-tot]', tr).textContent = eur(b + v);
+      const n = { preco: Number(l.preco) || 0, qtd: Number(l.qtd) || 0, desconto_pct: Number(l.desconto_pct) || 0 };
+      const b = totLinha(n), t = totLinha({ ...n, iva: Number(l.iva) || 0 });
+      base += b; iva += t - b; $('[data-tot]', tr).textContent = eur(t);
     });
     $('#le-tot', root).innerHTML = `Base: ${eur(base)} · IVA: ${eur(iva)} · <b style="font-size:1.15rem">Total: ${eur(base + iva)}</b>`;
-    onChange && onChange(base + iva);
+    onChange && onChange(Math.round((base + iva) * 100) / 100);
   };
   draw();
 }
@@ -162,7 +162,7 @@ async function verDocumento(id) {
     const motivo = await promptDlg('Anular documento', 'Motivo da anulação'); if (motivo === null) return false;
     await POST(`documentos/${d.id}/anular`, { motivo }); toast('Documento anulado'); render();
   } });
-  if (d.em_divida > 0) buttons.push({ label: 'Receber', onClick: () => emitirRecibo({ paciente: { id: d.paciente_id, nome: d.paciente_nome }, documento: d, onDone: () => render() }) });
+  if (d.em_divida > 0) buttons.push({ label: 'Receber pagamento', onClick: () => emitirRecibo({ paciente: { id: d.paciente_id, nome: d.paciente_nome }, documento: d, onDone: () => render() }) });
   if (d.estado === 'emitido' && DEBITO.includes(d.tipo)) {
     buttons.push({ label: 'Nota de crédito', onClick: async () => {
       const p = await GET('t/pacientes/' + d.paciente_id);
