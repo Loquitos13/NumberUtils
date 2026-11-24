@@ -19,10 +19,25 @@ const FKS = { entidade_id: ['entidades', 'Entidade'], medico_id: ['medicos', 'M�
 const FLAGS = ['ativo', 'sms_ok', 'email_ok', 'rgpd_consent'];
 const SIM = ['1', 'sim', 's', 'x', 'true'], NAO = ['0', 'não', 'nao', 'n', 'false'];
 const NAO_MAPEAVEIS = ['id', 'criado_em', 'alterado_por', 'alterado_em', 'foto'];
+// colunas com o nome (o export do NoviGest traz nomes, não ids): campo → [coluna id, erro, nomes aceites]
+const POR_NOME = { entidade: ['entidade_id', 'Entidade desconhecida', 'SELECT id, nome FROM entidades'],
+  medico: ['medico_id', 'Médico desconhecido', 'SELECT id, nome, abreviatura FROM medicos'] };
+const norm = s => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]/g, '');
+// nome normalizado → id; os nomes ganham às abreviaturas, e o primeiro repetido ganha
+function nomesPara(sql) {
+  const m = new Map(), rows = D.all(sql);
+  for (const k of ['nome', 'abreviatura']) for (const r of rows) if (r[k] && !m.has(norm(r[k]))) m.set(norm(r[k]), r.id);
+  return m;
+}
 
 // valida e normaliza uma linha; devolve o motivo do erro ou null
-function validarLinha(o) {
+function validarLinha(o, nomes) {
   if (!o.nome) return 'O nome é obrigatório';
+  for (const [k, [col, erro]] of Object.entries(POR_NOME)) if (o[k]) {
+    const id = nomes[k].get(norm(o[k]));
+    if (id === undefined) return `${erro}: ${o[k]}`;
+    o[col] = id; delete o[k];
+  }
   for (const k of Object.keys(NOMES_DATA)) if (o[k]) {
     const v = o[k].replace(/^(\d{2})\/(\d{2})\/(\d{4})$/, '$3-$2-$1');
     const d = new Date(v + 'T00:00:00Z');
@@ -49,13 +64,14 @@ function validarLinha(o) {
 function importarPacientes(body, user) {
   if (typeof body.csv !== 'string' || !body.csv) throw erro400('Falta o ficheiro CSV');
   const mapa = Array.isArray(body.mapa) ? body.mapa : [];
-  const cols = D.all('PRAGMA table_info(pacientes)').map(c => c.name).filter(c => !NAO_MAPEAVEIS.includes(c));
+  const cols = D.all('PRAGMA table_info(pacientes)').map(c => c.name).filter(c => !NAO_MAPEAVEIS.includes(c)).concat(Object.keys(POR_NOME));
   const fora = mapa.filter(c => c && !cols.includes(c));
   if (fora.length) throw erro400('Campo desconhecido: ' + fora.join(', '));
   if (!mapa.includes('nome')) throw erro400('Associe uma coluna ao nome');
   let dados;
   try { [, ...dados] = parseCsv(lerCsv(body.csv)); } catch (e) { throw erro400(e.message); }
   const iNum = mapa.indexOf('numero');
+  const nomes = Object.fromEntries(Object.entries(POR_NOME).map(([k, [, , sql]]) => [k, nomesPara(sql)]));
   const alterado_em = D.get("SELECT strftime('%Y-%m-%d %H:%M','now','localtime') t").t;
   const out = { criados: 0, ignorados: 0, erros: [] };
   try {
@@ -66,7 +82,7 @@ function importarPacientes(body, user) {
         const o = {};
         mapa.forEach((c, i) => { const v = (campos[i] || '').trim(); if (c && v) o[c] = v; });
         if (!Object.keys(o).length) return; // linha vazia
-        const motivo = validarLinha(o);
+        const motivo = validarLinha(o, nomes);
         if (motivo) return out.erros.push({ linha: n + 2, motivo }); // n.º da linha como no Excel (1 = cabeçalho)
         // as linhas já inseridas contam (estamos dentro da transação): repetidos no próprio ficheiro também são ignorados
         // shortcut: sem n.º, NIF nem data de nascimento não há como reconhecer o paciente e a linha é criada de novo; limpar à mão se reimportar

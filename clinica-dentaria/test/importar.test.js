@@ -129,3 +129,16 @@ test('sem n.º nem NIF, um paciente com o mesmo nome e data de nascimento não �
   assert.deepEqual(await importar(csv, ['nome', 'data_nasc'], false), { criados: 2, ignorados: 1, erros: [] });
   assert.deepEqual(await importar(csv, ['nome', 'data_nasc'], true), { criados: 0, ignorados: 3, erros: [] });
 });
+
+test('entidade e médico pelo nome (sem acentos nem maiúsculas, ou abreviatura do médico); nome desconhecido é erro da linha', async () => {
+  const m = await ok('POST', 't/medicos', { nome: 'Dra. Ana Ribeiro', abreviatura: 'AR' });
+  const csv = 'Nome;Seguro;Médico\nNm Um;medis;DRA. ANA RIBEIRO\nNm Dois;;ar\nNm Tres;Seguro X;\nNm Quatro;Médis;Dr. Ninguém\n';
+  assert.deepEqual(await importar(csv, ['nome', 'entidade', 'medico'], false), { criados: 2, ignorados: 0, erros: [
+    { linha: 4, motivo: 'Entidade desconhecida: Seguro X' },
+    { linha: 5, motivo: 'Médico desconhecido: Dr. Ninguém' },
+  ] });
+  const medis = (await ok('GET', 't/entidades')).find(e => e.nome === 'Médis').id;
+  const ps = await ok('GET', 'pacientes?q=Nm ');
+  const t = await Promise.all(ps.map(p => ok('GET', 't/pacientes/' + p.id)));
+  assert.deepEqual(t.map(p => [p.nome, p.entidade_id, p.medico_id]), [['Nm Dois', null, m.id], ['Nm Um', medis, m.id]]);
+});
