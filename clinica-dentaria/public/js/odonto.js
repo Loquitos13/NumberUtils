@@ -3,7 +3,8 @@
    Vermelho = necessário (planeado), azul = feito (realizado). */
 
 
-function liqTrat(t) { return (t.preco || 0) * (1 - (t.desconto_pct || 0) / 100) * (1 + (t.iva || 0) / 100); }
+// mesmo arredondamento do servidor (r2 em server.js): meio cêntimo afasta-se do zero
+function liqTrat(t) { const v = (t.preco || 0) * (1 - (t.desconto_pct || 0) / 100) * (1 + (t.iva || 0) / 100); return Math.sign(v) * Math.round(Number((Math.abs(v) * 100).toPrecision(15))) / 100 || 0; }
 
 // opts: { marcacao, onChange }
 async function odontograma(el, p, opts = {}) {
