@@ -206,9 +206,19 @@ const MIGRACOES = [
   'ALTER TABLE marcacoes ADD COLUMN lembrete_em TEXT',
   'ALTER TABLE users ADD COLUMN trocar_pw INTEGER DEFAULT 0',
 ];
+const ESTADOS_BASE = [
+  ['Marcada', '#6b7280', 'OUTRAS'], ['Confirmada', '#475569', 'OUTRAS'], ['A Confirmar', '#94a3b8', 'OUTRAS'],
+  ['Presente', '#0e7490', 'OUTRAS'], ['Em consulta', '#2563eb', 'OUTRAS'], ['Urgente', '#b91c1c', 'OUTRAS'],
+  ['Faltou', '#dc2626', 'FALTAS'], ['Desmarcada', '#9ca3af', 'INATIVAS'], ['Cancelada', '#9ca3af', 'INATIVAS'],
+  ['Atrasada', '#ea580c', 'OUTRAS'], ['Concluída', '#1d4ed8', 'REALIZADAS'], ['Faturada', '#1e3a8a', 'REALIZADAS'],
+];
+// cores antigas (arco-íris) → novas, só onde o administrador não as mudou
+const CORES_ANTIGAS = { Marcada: '#38bdf8', Confirmada: '#7c3aed', 'A Confirmar': '#c084fc', Presente: '#16a34a', 'Em consulta': '#0d9488',
+  Urgente: '#22d3ee', Desmarcada: '#92400e', Cancelada: '#f97316', Atrasada: '#eab308', Faturada: '#111827' };
 for (const sql of MIGRACOES) {
   try { db.exec(sql); } catch { /* coluna já existe */ }
 }
+for (const [n, c] of ESTADOS_BASE) if (CORES_ANTIGAS[n]) db.prepare('UPDATE estados SET cor=? WHERE nome=? AND lower(cor)=?').run(c, n, CORES_ANTIGAS[n]);
 // índices: sem eles cada pesquisa por paciente percorre a tabela toda
 db.exec(`
 CREATE INDEX IF NOT EXISTS idx_doc_pac ON documentos(paciente_id);
@@ -334,12 +344,8 @@ function seed() {
       run('INSERT INTO users (nome, login, pass_hash, perfil, medico_id) VALUES (?,?,?,?,?)', 'Dra. Ana Ribeiro', 'ana', hashPassword('ana'), 'medico', 1);
     }
 
-    const estados = [
-      ['Marcada', '#38bdf8', 'OUTRAS'], ['Confirmada', '#7c3aed', 'OUTRAS'], ['A Confirmar', '#c084fc', 'OUTRAS'],
-      ['Presente', '#16a34a', 'OUTRAS'], ['Em consulta', '#0d9488', 'OUTRAS'], ['Urgente', '#22d3ee', 'OUTRAS'],
-      ['Faltou', '#dc2626', 'FALTAS'], ['Desmarcada', '#92400e', 'INATIVAS'], ['Cancelada', '#f97316', 'INATIVAS'],
-      ['Atrasada', '#eab308', 'OUTRAS'], ['Concluída', '#1d4ed8', 'REALIZADAS'], ['Faturada', '#111827', 'REALIZADAS'],
-    ];
+    // cores pela regra da clínica: cinzento = por acontecer, azul = em curso/feito, vermelho = alerta
+    const estados = ESTADOS_BASE;
     estados.forEach(([n, c, cat], i) => run('INSERT INTO estados (nome, cor, categoria, ordem) VALUES (?,?,?,?)', n, c, cat, i));
 
     const razoes = [['Branqueamento', 'Branqueamento'], ['Cirurgia', 'Intervenção Cirúrgica'], ['Siso', 'Siso incluso'],
