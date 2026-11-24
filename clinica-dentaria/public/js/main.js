@@ -49,7 +49,23 @@ $('#btn-pass').onclick = () => modal({ title: 'Alterar palavra-passe', size: 'sm
     const f = readForm($('form', c.body)); if (f.nova !== f.nova2) throw new Error('As palavras-passe não coincidem');
     await POST('password', f); toast('Palavra-passe alterada');
   } }] });
-$('#btn-new-marc').onclick = () => openMarcacao({});
+// Nova marcação (barra de topo e Alt+N): na ficha ou na consulta já vem com o paciente aberto
+// (sem act(): desativar o botão tirava-lhe o foco e o modal não o devolvia ao fechar)
+let abrindoMarc = false;
+async function novaMarcacao() {
+  if (abrindoMarc) return; abrindoMarc = true; // duplo clique / Alt+N repetido não abre dois modais
+  try {
+    const [r, id] = location.hash.replace(/^#\/?/, '').split('/');
+    let paciente;
+    try {
+      if (r === 'paciente' && id) { const p = await GET(`pacientes/${id}/resumo`); paciente = { id: p.id, nome: p.nome }; }
+      else if (r === 'consulta' && id) { const m = await GET('marcacoes/' + id); paciente = { id: m.paciente_id, nome: m.paciente_nome }; }
+    } catch { /* sem paciente: abre em branco */ }
+    await openMarcacao({ paciente });
+  } catch (x) { toast(x.message, true); }
+  finally { abrindoMarc = false; }
+}
+$('#btn-new-marc').onclick = novaMarcacao;
 $('#btn-new-pac').onclick = () => editPaciente(null, p => go('#/paciente/' + p.id));
 patientPicker($('#global-search'), p => { $('#global-search').value = ''; go('#/paciente/' + p.id); });
 const visivel = el => el && el.getClientRects().length && !el.disabled && !el.matches('.danger'); // Ctrl+S nunca carrega num botão de apagar
@@ -65,13 +81,15 @@ document.addEventListener('keydown', e => {
   if ($('#app').classList.contains('hidden')) return;
   const mod = e.ctrlKey || e.metaKey;
   if (mod && e.key.toLowerCase() === 'k') { e.preventDefault(); $('#global-search').focus(); }
-  else if (e.altKey && !mod && e.code === 'KeyN') { e.preventDefault(); if (!$('.modal-bg')) openMarcacao({}); }
+  else if (e.altKey && !mod && e.code === 'KeyN') { e.preventDefault(); if (!$('.modal-bg')) novaMarcacao(); }
   else if (mod && !e.altKey && e.key.toLowerCase() === 's') {
     e.preventDefault();
     const b = botaoGuardar(); if (!b) return;
     const a = document.activeElement;
     if (a && a.matches('input, select, textarea')) a.blur(); // dispara o change do campo que está a ser editado
     b.click();
+    // modal ainda aberto (erro): o foco volta ao campo onde estava, salvo se foi para um campo inválido
+    if (b._p && a) b._p.then(() => { const f = document.activeElement; if (a.isConnected && (!f || f === b || f === document.body)) a.focus(); });
   }
 });
 

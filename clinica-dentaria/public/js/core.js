@@ -59,10 +59,21 @@ function toast(msg, err = false) {
   while (box.children.length > 2) box.firstElementChild.remove();
   setTimeout(() => el.remove(), err ? 6000 : 3000);
 }
-// executa uma ação mostrando o erro se falhar
+// executa uma ação mostrando o erro se falhar; o botão que a disparou fica desativado
+// enquanto corre (duplo clique não cria registos repetidos)
 async function act(fn, okMsg) {
+  const ev = window.event, t = ev && (ev.submitter || ev.target);
+  const b = t && t.closest ? t.closest('button') : null;
+  const lock = b && !b.disabled; // já desativado (ex.: botão de modal): quem o desativou é que o reativa
+  const tinhaFoco = lock && document.activeElement === b;
+  if (lock) b.disabled = true;
   try { const r = await fn(); if (okMsg) toast(okMsg); return r; }
   catch (e) { toast(e.message, true); throw e; }
+  finally {
+    if (lock) b.disabled = false;
+    // desativar tira o foco ao botão: devolve-o se ninguém o levou para outro lado
+    if (tinhaFoco && b.isConnected && (document.activeElement === document.body || !document.activeElement)) b.focus();
+  }
 }
 
 // 1.º e último nome, por grafema (emoji e acentos compostos não se partem)
@@ -77,7 +88,8 @@ const FOCAVEIS = 'a[href], button:not([disabled]), input:not([type=hidden]):not(
 let modalSeq = 0;
 // semAlteracoes: não pergunta "alterações por guardar" ao fechar (pesquisas, envios)
 // semCtrlS: Ctrl+S não carrega em nenhum botão (pagamentos, documentos fiscais, envios)
-function modal({ title, body = '', size = '', buttons = [], onOpen, semAlteracoes = false, semCtrlS = false }) {
+// onClose: chamado sempre que o modal fecha (guardar, Cancelar, Esc, X, fundo)
+function modal({ title, body = '', size = '', buttons = [], onOpen, onClose, semAlteracoes = false, semCtrlS = false }) {
   const opener = document.activeElement;
   const hid = 'mdl-h' + (++modalSeq);
   const bg = document.createElement('div');
@@ -95,6 +107,7 @@ function modal({ title, body = '', size = '', buttons = [], onOpen, semAlteracoe
     if (!bg.isConnected) return;
     bg.remove(); document.removeEventListener('keydown', onKey);
     if (opener && opener.isConnected && opener.focus) opener.focus();
+    if (onClose) onClose();
   };
   // fecho pedido pelo utilizador (Esc, X, fundo, Cancelar): confirma se há alterações
   const dismiss = async () => {
@@ -119,13 +132,14 @@ function modal({ title, body = '', size = '', buttons = [], onOpen, semAlteracoe
     const btn = document.createElement('button');
     btn.textContent = b.label; btn.className = b.cls || '';
     if (b.left) btn.style.marginRight = 'auto';
-    btn.onclick = async () => {
+    // btn._p: o Ctrl+S espera por ele para devolver o foco ao campo
+    btn.onclick = () => btn._p = (async () => {
       if (!b.onClick) return dismiss();
       btn.disabled = true;
       try { const r = await b.onClick(ctx); if (r !== false) close(); }
-      catch (e) { toast(e.message, true); }
+      catch (e) { toast(e.message, true); marcarInvalido(bodyEl); }
       finally { btn.disabled = false; }
-    };
+    })();
     foot.appendChild(btn);
   }
   if (!buttons.length) foot.remove();
@@ -141,15 +155,25 @@ function modal({ title, body = '', size = '', buttons = [], onOpen, semAlteracoe
   }, 30);
   return ctx;
 }
+// erro ao guardar: o 1.º campo inválido ou obrigatório vazio fica marcado e com o foco (3.3.1)
+function marcarInvalido(root) {
+  const f = $$('input:not([type=hidden]), select, textarea', root)
+    .find(i => i.getClientRects().length && !i.disabled && (!i.checkValidity() || (i.required && !String(i.value).trim())));
+  if (!f) return;
+  f.setAttribute('aria-invalid', 'true');
+  f.addEventListener('input', () => f.removeAttribute('aria-invalid'), { once: true });
+  f.focus();
+}
+// Esc, X ou fundo valem como Cancelar (a promessa resolve sempre; a 1.ª resposta é a que conta)
 function confirmDlg(msg, okLabel = 'Confirmar', danger = false) {
   return new Promise(res => {
-    modal({ title: 'Confirmação', size: 'sm', semCtrlS: true, body: `<p>${esc(msg)}</p>`,
+    modal({ title: 'Confirmação', size: 'sm', semCtrlS: true, body: `<p>${esc(msg)}</p>`, onClose: () => res(false),
       buttons: [{ label: 'Cancelar', onClick: () => res(false) }, { label: okLabel, cls: danger ? 'danger' : 'primary', onClick: () => res(true) }] });
   });
 }
 function promptDlg(title, label, value = '') {
   return new Promise(res => {
-    modal({ title, size: 'sm', semCtrlS: true, body: `<div class="field"><label class="f">${esc(label)}</label><input id="pd" value="${esc(value)}"></div>`,
+    modal({ title, size: 'sm', semCtrlS: true, body: `<div class="field"><label class="f" for="pd">${esc(label)}</label><input id="pd" value="${esc(value)}"></div>`, onClose: () => res(null),
       buttons: [{ label: 'Cancelar', onClick: () => res(null) }, { label: 'OK', cls: 'primary', onClick: c => res($('#pd', c.body).value) }] });
   });
 }
@@ -195,8 +219,9 @@ function readForm(el) {
 }
 
 // ---------- tabelas ----------
-// cols: [{h: 'Título', f: r => html, cls: 'right'}]
-function table(rows, cols, { onClick, empty = 'Sem registos', rowCls, foot } = {}) {
+// cols: [{h: 'Título', f: r => html, cls: 'right', sr: 'título só para leitores de ecrã quando h é vazio'}]
+// caption: legenda da tabela, só para leitores de ecrã
+function table(rows, cols, { onClick, empty = 'Sem registos', rowCls, foot, caption } = {}) {
   if (!rows || !rows.length) return `<div class="empty">${esc(empty)}</div>`;
   const id = 't' + Math.random().toString(36).slice(2, 8);
   setTimeout(() => {
@@ -210,7 +235,9 @@ function table(rows, cols, { onClick, empty = 'Sem registos', rowCls, foot } = {
       e.preventDefault(); onClick(rows[Number(e.target.dataset.i)], e);
     });
   });
-  return `<table class="t" id="${id}"><thead><tr>${cols.map(c => `<th class="${c.cls || ''}">${esc(c.h)}</th>`).join('')}</tr></thead>
+  // coluna sem título: "Selecionar" se for de caixas de seleção, senão "Ações"
+  const th = c => c.h ? esc(c.h) : `<span class="sr-only">${esc(c.sr || (/type="checkbox"/.test(c.f(rows[0])) ? 'Selecionar' : 'Ações'))}</span>`;
+  return `<table class="t" id="${id}">${caption ? `<caption class="sr-only">${esc(caption)}</caption>` : ''}<thead><tr>${cols.map(c => `<th class="${c.cls || ''}">${th(c)}</th>`).join('')}</tr></thead>
     <tbody>${rows.map((r, i) => `<tr data-i="${i}"${onClick ? ' tabindex="0"' : ''} class="${onClick ? 'click' : ''} ${rowCls ? rowCls(r) : ''}">${cols.map(c => `<td class="${c.cls || ''}">${c.f(r)}</td>`).join('')}</tr>`).join('')}</tbody>
     ${foot ? `<tfoot><tr>${foot}</tr></tfoot>` : ''}</table>`;
 }
@@ -241,24 +268,33 @@ function patientPicker(input, onSelect) {
   const wrap = input.parentElement; wrap.classList.add('ac');
   const podeCriar = typeof editPaciente === 'function';
   let list = null, items = [], idx = -1, seq = 0, q = '';
-  const close = () => { if (list) list.remove(); list = null; idx = -1; };
+  // combobox (ARIA 1.2): a lista é um listbox e a opção ativa segue as setas via aria-activedescendant
+  const lid = 'ac-' + (++fldSeq);
+  input.setAttribute('role', 'combobox'); input.setAttribute('aria-autocomplete', 'list');
+  input.setAttribute('aria-expanded', 'false'); input.setAttribute('aria-controls', lid);
+  const close = () => {
+    if (list) list.remove(); list = null; idx = -1;
+    input.setAttribute('aria-expanded', 'false'); input.removeAttribute('aria-activedescendant');
+  };
+  const opt = d => { d.setAttribute('role', 'option'); d.id = `${lid}-${list.children.length}`; d.setAttribute('aria-selected', 'false'); };
   const render = () => {
     close();
-    list = document.createElement('div'); list.className = 'ac-list';
-    if (!items.length) list.innerHTML = '<div class="muted" data-none>Sem resultados</div>';
+    list = document.createElement('div'); list.className = 'ac-list'; list.id = lid;
+    list.setAttribute('role', 'listbox'); list.setAttribute('aria-label', 'Pacientes encontrados');
+    if (!items.length) list.innerHTML = '<div class="muted" data-none role="option" aria-disabled="true">Sem resultados</div>';
     items.forEach((p, i) => {
-      const d = document.createElement('div');
+      const d = document.createElement('div'); opt(d);
       d.innerHTML = `<b>${esc(p.nome)}</b> <span class="muted small">n.º ${esc(p.numero)}${p.nif ? ' · NIF ' + esc(p.nif) : ''}${p.telemovel ? ' · ' + esc(p.telemovel) : ''}</span>`;
       d.onmousedown = e => { e.preventDefault(); choose(i); };
       list.appendChild(d);
     });
     if (podeCriar) {
-      const d = document.createElement('div');
+      const d = document.createElement('div'); opt(d);
       d.innerHTML = `<span style="color:var(--blue-ink)">+ Criar paciente «${esc(q)}»</span>`;
       d.onmousedown = e => { e.preventDefault(); choose(items.length); };
       list.appendChild(d);
     }
-    wrap.appendChild(list);
+    wrap.appendChild(list); input.setAttribute('aria-expanded', 'true');
   };
   // abre "Novo paciente" com o nome pesquisado
   const criar = nome => editPaciente(null, p => onSelect(p), { nome });
@@ -284,7 +320,8 @@ function patientPicker(input, onSelect) {
     else if (e.key === 'ArrowUp') { idx = Math.max(idx - 1, 0); e.preventDefault(); }
     else if (e.key === 'Enter') { e.preventDefault(); if (els.length) choose(idx < 0 ? 0 : idx); return; }
     else if (e.key === 'Escape') { e.preventDefault(); return close(); }
-    els.forEach((el, i) => el.classList.toggle('sel', i === idx));
+    els.forEach((el, i) => { el.classList.toggle('sel', i === idx); el.setAttribute('aria-selected', String(i === idx)); });
+    if (els[idx]) { input.setAttribute('aria-activedescendant', els[idx].id); els[idx].scrollIntoView({ block: 'nearest' }); }
   });
 }
 // campo de paciente com valor escondido
@@ -375,10 +412,20 @@ async function render() {
   view.setAttribute('aria-busy', 'true');
   const t = setTimeout(() => bar && bar.classList.add('on'), 300);
   try { await r(view, params.map(decodeURIComponent)); }
-  catch (e) { if (e.message !== 'Sessão expirada') view.innerHTML = `<div class="alert danger">${esc(e.message)}</div>`; console.error(e); }
+  catch (e) {
+    console.error(e);
+    // erro de uma página que entretanto foi substituída (navegação rápida): ignora
+    if (my === renderSeq && e.message !== 'Sessão expirada') view.innerHTML = `<div class="alert danger">${esc(e.message)}</div>`;
+  }
   finally {
     clearTimeout(t);
-    if (my === renderSeq) { view.removeAttribute('aria-busy'); if (bar) bar.classList.remove('on'); }
+    if (my === renderSeq) {
+      view.removeAttribute('aria-busy'); if (bar) bar.classList.remove('on');
+      // título do separador = título da página (2.4.2)
+      const h1 = $('h1', view), clin = (App.L && App.L.config.clinica_nome) || 'Clínica';
+      const tt = h1 ? h1.textContent.replace(/\s+/g, ' ').trim() : '';
+      document.title = tt ? `${tt} — ${clin}` : `${clin} — Gestão`;
+    }
   }
 }
 // formulário da página com alterações por guardar (ficha, anamnese, configuração, notas)
@@ -393,6 +440,16 @@ window.addEventListener('hashchange', async () => {
     App.dirty = false; fecharModais(); location.hash = to; return;
   }
   fecharModais(); render();
+});
+
+// menus "Mais ⋯" (<details class="mais">): fecham com clique fora, ao escolher uma opção ou com Esc
+document.addEventListener('click', e => {
+  for (const d of $$('details.mais[open]')) if (!d.contains(e.target) || e.target.closest('.mais-menu button, .mais-menu a')) d.open = false;
+});
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Escape') return;
+  const d = $$('details.mais[open]').pop(); if (!d) return;
+  e.preventDefault(); d.open = false; $('summary', d).focus(); // preventDefault: o Esc não fecha também o modal
 });
 
 function showLogin() { $('#app').classList.add('hidden'); $('#login').classList.remove('hidden'); }
