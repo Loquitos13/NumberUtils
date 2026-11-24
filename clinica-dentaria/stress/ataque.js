@@ -2,7 +2,7 @@
 // Teste de carga e de negação de serviço (npm run stress). Não faz parte do npm test.
 // Arranca o servidor num processo à parte, com DATA_DIR temporário, dados DEMO e 20 000 pacientes, e ataca-o.
 // Variáveis: USERS (utilizadores simultâneos, 50), DUR (segundos da mistura, 15), PACIENTES (20000),
-//            SLOW_N (ligações slowloris, 1000), SLOW_S (segundos a segurá-las, 20; use 100 para ver o headersTimeout), UP_N (uploads em paralelo, 20)
+//            ANOS (anos de agenda semeados, 5), SLOW_N (ligações slowloris, 1000), SLOW_S (segundos a segurá-las, 20; use 100 para ver o headersTimeout), UP_N (uploads em paralelo, 20)
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -12,13 +12,13 @@ const { spawn } = require('node:child_process');
 
 const USERS = Number(process.env.USERS) || 50, DUR = Number(process.env.DUR) || 15, NPAC = Number(process.env.PACIENTES) || 20000;
 const SLOW_N = Number(process.env.SLOW_N) || 1000, SLOW_S = Number(process.env.SLOW_S) || 20, UP_N = Number(process.env.UP_N) || 20;
-const LENTO_MS = 200;
+const LENTO_MS = 200, ANOS = Number(process.env.ANOS) || 5;
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'clinica-stress-'));
 const env = { ...process.env, DATA_DIR: dir, DEMO: '1', ADMIN_PASSWORD: 'stress-admin-pw' };
 const hoje = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 
-// ---------- dados: DEMO + NPAC pacientes + 2 marcações por paciente ----------
+// ---------- dados: DEMO + NPAC pacientes + 2 marcações por paciente + ANOS anos de agenda cheia (5 médicos) ----------
 function semear() {
   Object.assign(process.env, env);
   const D = require('../db');
@@ -33,6 +33,15 @@ function semear() {
       for (let k = 0; k < 2; k++) {
         const d = new Date(Date.now() + ((r(i + k) % 360) - 180) * 864e5); const dia = d.toISOString().slice(0, 10), h = 8 + r(i * 3 + k) % 11;
         D.run('INSERT INTO marcacoes (paciente_id, medico_id, inicio, fim, estado_id) VALUES (?,?,?,?,1)', id, 1 + i % 5, `${dia}T${String(h).padStart(2, '0')}:00`, `${dia}T${String(h).padStart(2, '0')}:30`);
+      }
+    }
+    // agenda de uma clínica com histórico: ANOS anos até hoje + 1 mês, 5 médicos, dias úteis das 08:00 às 18:00 de 30 em 30 min
+    for (let d = new Date(Date.now() - ANOS * 365 * 864e5); d < new Date(Date.now() + 30 * 864e5); d.setDate(d.getDate() + 1)) {
+      if (d.getDay() === 0 || d.getDay() === 6) continue;
+      const dia = d.toISOString().slice(0, 10);
+      for (let md = 1; md <= 5; md++) for (let t = 8 * 60; t < 18 * 60; t += 30) {
+        const h = x => `${dia}T${String(x / 60 | 0).padStart(2, '0')}:${String(x % 60).padStart(2, '0')}`;
+        if (r(t + md + d.getDate()) % 7) D.run('INSERT INTO marcacoes (paciente_id, medico_id, inicio, fim, estado_id) VALUES (?,?,?,?,1)', 1 + r(t * md + d.getDate()) % NPAC, md, h(t), h(t + 30));
       }
     }
   });
@@ -75,10 +84,23 @@ function registar(nome, res, okFn = r => r.status >= 200 && r.status < 300) {
 const notas = [];
 
 async function main() {
-  const t = Date.now(); semear(); console.log(`dados: ${NPAC} pacientes + ${NPAC * 2} marcações em ${Date.now() - t} ms`);
+  const t = Date.now(); semear();
+  { const { DatabaseSync } = require('node:sqlite'); const db = new DatabaseSync(path.join(dir, 'clinica.db')); notas.push(`dados: ${NPAC} pacientes + ${db.prepare('SELECT COUNT(*) n FROM marcacoes').get().n} marcações (${ANOS} anos) em ${Date.now() - t} ms`); db.close(); }
+  console.log(notas[0]);
   await arrancar(); console.log(`servidor filho pid ${filho.pid} porta ${port}, RSS ${rss().rss.toFixed(0)} MB`);
   const login = async () => (await pedido('POST', 'login', { corpo: { login: 'admin', password: 'stress-admin-pw' } })).headers['set-cookie'][0].split(';')[0];
   const ckA = await login();
+
+  // 0. latência da agenda com anos de marcações (sozinho, antes da mistura): guardar e pesquisa de vagas
+  const sav = [], vag = [];
+  for (let i = 0; i < 20; i++) {
+    const d = new Date(Date.now() + (70 + i) * 864e5).toISOString().slice(0, 10);
+    sav.push(await pedido('POST', 'marcacoes', { ck: ckA, corpo: { paciente_id: 1 + i, medico_id: 1 + i % 5, inicio: `${d}T19:00`, fim: `${d}T19:30`, sem_aviso: 1 } }));
+    vag.push(await pedido('GET', `pesquisa-vagas?medico_id=${1 + i % 5}&medico2_id=${1 + (i + 1) % 5}&limite=100`, { ck: ckA }));
+  }
+  const lSav = registar('guardar marcação (anos de agenda)', sav, x => (x.status >= 200 && x.status < 300) || x.status === 409);
+  const lVag = registar('pesquisa-vagas 2 médicos limite=100', vag);
+  notas.push(`latência: guardar marcação p50 ${lSav.p50.toFixed(1)} / max ${lSav.max.toFixed(1)} ms; pesquisa-vagas p50 ${lVag.p50.toFixed(0)} / max ${lVag.max.toFixed(0)} ms`);
 
   // 1. mistura realista: USERS utilizadores durante DUR segundos
   const ops = {

@@ -84,6 +84,37 @@ test('marcação desmarcada ou falta liberta o horário; forcar ignora o conflit
   assert.equal((await marcar({ paciente_id: pac, medico_id: mA, inicio: '2031-03-17T10:00', fim: '2031-03-17T10:30', forcar: true })).status, 200);
 });
 
+test('anular uma de duas marcações sobrepostas (forçadas) não dá conflito; mudar só notas também não', async () => {
+  const a = await ok('POST', 'marcacoes', { paciente_id: pac, medico_id: mA, gabinete_id: gab[0], inicio: '2031-03-18T10:00', fim: '2031-03-18T10:30' });
+  const b = await ok('POST', 'marcacoes', { paciente_id: pac, medico_id: mA, gabinete_id: gab[0], inicio: '2031-03-18T10:00', fim: '2031-03-18T10:30', forcar: true });
+  assert.equal((await api('PUT', `marcacoes/${a.id}`, { notas: 'chega atrasado' })).status, 200);
+  assert.equal((await api('PUT', `marcacoes/${b.id}`, { estado_id: est.Desmarcada })).status, 200);
+  assert.equal((await api('PUT', `marcacoes/${a.id}`, { estado_id: est.Faltou })).status, 200);
+  // mudar o horário continua a verificar conflitos
+  const c = await ok('POST', 'marcacoes', { paciente_id: pac, medico_id: mA, inicio: '2031-03-18T11:00', fim: '2031-03-18T11:30' });
+  const d = await ok('POST', 'marcacoes', { paciente_id: pac, medico_id: mA, inicio: '2031-03-18T12:00', fim: '2031-03-18T12:30' });
+  assert.equal((await api('PUT', `marcacoes/${d.id}`, { inicio: '2031-03-18T11:15', fim: '2031-03-18T11:45' })).status, 409);
+  assert.equal((await api('PUT', `marcacoes/${c.id}`, { estado_id: est.Confirmada })).status, 200);
+});
+
+test('com anos de agenda: conflito que atravessa a meia-noite (e a passagem de ano) continua a ser detetado', async () => {
+  const mY = await medico('Dr. Anos');
+  for (const ano of [2027, 2028, 2029, 2030]) await ok('POST', 'marcacoes', { paciente_id: pac, medico_id: mY, gabinete_id: gab[1], inicio: `${ano}-12-31T23:30`, fim: `${ano + 1}-01-01T00:30`, forcar: true });
+  await ok('POST', 'marcacoes', { paciente_id: pac, medico_id: mY, gabinete_id: gab[1], inicio: '2031-12-31T23:30', fim: '2032-01-01T00:30', forcar: true });
+  const r = await marcar({ paciente_id: pac, medico_id: mY, inicio: '2032-01-01T00:00', fim: '2032-01-01T00:15' });
+  assert.equal(r.status, 409); assert.match(r.body.erro, /médico já tem/);
+  const g = await marcar({ paciente_id: pac, medico_id: mB, gabinete_id: gab[1], inicio: '2032-01-01T00:15', fim: '2032-01-01T00:45' });
+  assert.equal(g.status, 409); assert.match(g.body.erro, /gabinete/);
+  // a meia-hora seguinte está livre (o feriado de 1 de janeiro só é verificado se não houver conflito)
+  assert.match((await marcar({ paciente_id: pac, medico_id: mY, inicio: '2032-01-01T00:30', fim: '2032-01-01T01:00' })).body.erro || '', /feriado/);
+  // pesquisa de vagas e ocupação só contam o próprio dia
+  await ok('POST', 'marcacoes', { paciente_id: pac, medico_id: mY, inicio: '2031-03-03T08:30', fim: '2031-03-03T09:30' });
+  await ok('POST', 'marcacoes', { paciente_id: pac, medico_id: mY, inicio: '2030-03-03T08:30', fim: '2030-03-03T12:30', forcar: true });
+  assert.deepEqual(await vagas(`medico_id=${mY}&de=2031-03-03&limite=2`), ['2031-03-03T09:30', '2031-03-03T10:30']);
+  const oc = await ok('GET', `listagens/ocupacao?de=2031-03-03&ate=2031-03-03&medico_id=${mY}`);
+  assert.deepEqual(oc.rows.map(x => [x.marcacoes, x.horas_ocup]), [[1, 1]]);
+});
+
 // ---------- mover / remarcações ----------
 test('mover conta remarcações só quando muda o início e não conflita consigo própria', async () => {
   const m = await ok('POST', 'marcacoes', { paciente_id: pac, medico_id: mA, inicio: '2031-03-13T09:00', fim: '2031-03-13T09:30' });

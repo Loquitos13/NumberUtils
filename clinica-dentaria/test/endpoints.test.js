@@ -46,6 +46,7 @@ before(async () => {
   ck.expirada = 'sid=sessao-expirada-teste';
   D.run("INSERT INTO sessions VALUES ('sessao-expirada-teste', 1, datetime('now','localtime','-13 hours'))");
   ck.nenhuma = undefined;
+  D.run("INSERT INTO pacientes (id, numero, nome) VALUES (1, 1, 'Paciente da matriz')"); // as leituras pacientes/1/... têm de encontrar a ficha
 });
 after(() => { server.close(); fs.rmSync(dir, { recursive: true, force: true }); });
 
@@ -69,10 +70,10 @@ for (const [t, adm] of Object.entries(TABELAS)) {
   ep(adm ? 'admin' : 'todos', 'PUT', `t/${t}/${N}`, {}, { soNegado: true }); // autorizados: ver o teste "PUT t/<tabela>/<id inexistente>"
   ep(adm || ['proteses', 'anexos'].includes(t) ? 'admin' : 'todos', 'DELETE', `t/${t}/${N}`);
 }
-for (const s of ['resumo', 'perio', 'marcacoes', 'em-aberto', 'tratamentos', 'notas', 'anamnese-extra', 'contacorrente', 'documentos']) ep('todos', 'GET', `pacientes/1/${s}`);
-ep('todos', 'GET', 'pacientes'); ep('todos', 'GET', 'pacientes?q=a'); ep('todos', 'PUT', 'pacientes/1/anamnese-extra', {});
-ep('todos', 'POST', 'pacientes/1/anexos', undefined, { binario: true });
-ep('todos', 'GET', 'anamnese/1'); ep('todos', 'GET', `perio/${N}`);
+for (const s of ['resumo', 'perio', 'marcacoes', 'em-aberto', 'tratamentos', 'notas', 'anamnese-extra', 'contacorrente']) ep('todos', 'GET', `pacientes/1/${s}`);
+ep('todos', 'GET', 'pacientes'); ep('todos', 'GET', 'pacientes?q=a'); ep('todos', 'PUT', `pacientes/${N}/anamnese-extra`, {});
+ep('todos', 'POST', `pacientes/${N}/anexos`, undefined, { binario: true });
+ep('todos', 'PUT', `anamnese/${N}`, {}); ep('todos', 'GET', `perio/${N}`);
 ep('todos', 'POST', 'notas', {}); ep('admin', 'DELETE', `notas/${N}`);
 ep('todos', 'GET', 'agenda'); ep('todos', 'GET', `marcacoes/${N}`); ep('todos', 'POST', 'marcacoes', {}); ep('todos', 'PUT', `marcacoes/${N}`, {});
 ep('todos', 'DELETE', `marcacoes/${N}`); ep('todos', 'GET', 'pesquisa-vagas?medico_id=1'); ep('todos', 'GET', 'bloqueios'); ep('todos', 'GET', 'espera');
@@ -82,7 +83,7 @@ ep('todos', 'POST', `orcamentos/${N}/aceitar`, {}); ep('todos', 'POST', `orcamen
 ep('todos', 'GET', 'documentos'); ep('todos', 'GET', `documentos/${N}`); ep('todos', 'POST', 'documentos', {}); ep('todos', 'POST', `documentos/${N}/anular`, {});
 ep('todos', 'POST', `documentos/${N}/email`, {}); ep('todos', 'POST', 'recibos', {}); ep('todos', 'GET', 'devedores');
 ep('todos', 'GET', 'stocks/existencias'); ep('todos', 'GET', 'stocks/lotes?produto_id=1'); ep('todos', 'GET', 'stocks/movimentos'); ep('todos', 'POST', 'stocks/transferir', {});
-ep('todos', 'GET', 'proteses'); ep('todos', 'GET', 'estatisticas'); ep('todos', 'GET', 'aniversarios');
+ep('todos', 'GET', 'proteses'); ep('todos', 'GET', 'estatisticas'); ep('todos', 'GET', 'aniversarios'); ep('todos', 'GET', 'revisoes');
 ep('todos', 'POST', 'sms/preparar', {}); ep('todos', 'GET', 'sms/historico'); ep('todos', 'GET', 'sms/estado'); ep('todos', 'POST', 'sms/marcar-enviado', {});
 ep('admin', 'POST', 'sms/teste', { canal: 'email', para: 'x@exemplo.pt' });
 ep('todos', 'GET', 'dashboard'); ep('todos', 'GET', `anexos/${N}/ficheiro`);
@@ -107,7 +108,8 @@ for (const e of E) {
       if (e.binario) { opt.corpo = Buffer.from('%PDF-1.4 teste'); opt.tipo = 'application/octet-stream'; } else if (e.corpo !== undefined) opt.corpo = e.corpo;
       const r = await pedido(e.metodo, '/api/' + e.url, opt);
       const exp = esperado(e.acesso, perfil);
-      const bom = exp === 'ok' ? r.status && ![401, 403].includes(r.status) && r.status < 500 : r.status === exp;
+      // 404 só é resposta válida quando o pedido usa um id inexistente (senão a rota pode ter desaparecido)
+      const bom = exp === 'ok' ? r.status && ![401, 403].includes(r.status) && r.status < 500 && (r.status !== 404 || e.url.includes(String(N))) : r.status === exp;
       if (!bom) falhas.push(`${perfil}: esperado ${exp}, obtido ${r.status}${r.timeout ? ' (sem resposta)' : ''} ${(r.texto || '').slice(0, 80)}`);
     }
     assert.deepEqual(falhas, []);
@@ -127,10 +129,12 @@ test('login público, rotas desconhecidas → 401 sem sessão e 404 com sessão'
   assert.equal((await pedido('GET', '/api/t/config', { ck: ck.admin })).status, 404);
   assert.equal((await pedido('PATCH', '/api/pacientes', { ck: ck.admin })).status, 404);
   assert.equal((await pedido('GET', '/api/pacientes/1/desconhecido', { ck: ck.admin })).status, 404);
+  assert.equal((await pedido('GET', '/api/pacientes/1/documentos', { ck: ck.admin })).status, 404); // removidas: o cliente não as usa
+  assert.equal((await pedido('GET', '/api/anamnese/1', { ck: ck.admin })).status, 404);
 });
 
 test('métodos não suportados em rotas só de leitura', async () => {
-  for (const [m, u] of [['DELETE', 'lookups'], ['POST', 'agenda'], ['DELETE', 'dashboard'], ['PUT', 'devedores'], ['DELETE', 'me'], ['GET', 'logout'], ['GET', 'login']])
+  for (const [m, u] of [['DELETE', 'lookups'], ['POST', 'agenda'], ['DELETE', 'dashboard'], ['PUT', 'devedores'], ['POST', 'revisoes'], ['DELETE', 'me'], ['GET', 'logout'], ['GET', 'login']])
     assert.ok([404, 405].includes((await pedido(m, '/api/' + u, { ck: ck.admin, corpo: m === 'DELETE' || m === 'GET' ? undefined : {} })).status), `${m} ${u}`);
   assert.equal((await pedido('GET', '/api/me', { ck: ck.admin })).status, 200, 'GET /api/logout não termina a sessão');
 });
@@ -183,6 +187,14 @@ test('parâmetros numéricos inválidos não dão erro 500 (nem expõem SQL)', a
   }
 });
 
+test('stocks/existencias?armazem_id inválido → 400; válido filtra pelo armazém', async () => {
+  for (const a of ['x', '1 OR 1', '1.5']) assert.equal((await pedido('GET', `/api/stocks/existencias?armazem_id=${encodeURIComponent(a)}`, { ck: ck.admin })).status, 400, a);
+  const prod = JSON.parse((await pedido('POST', '/api/t/produtos', { ck: ck.admin, corpo: { nome: 'Luvas Armazém', ativo: 1 } })).texto).id;
+  assert.equal((await pedido('POST', '/api/t/movimentos_stock', { ck: ck.admin, corpo: { produto_id: prod, armazem_id: 1, tipo: 'entrada', qtd: 7 } })).status, 200);
+  const qtd = async a => JSON.parse((await pedido('GET', `/api/stocks/existencias${a}`, { ck: ck.admin })).texto).find(p => p.id === prod).qtd;
+  assert.deepEqual([await qtd('?armazem_id=1'), await qtd('?armazem_id=2'), await qtd('')], [7, 0, 7]);
+});
+
 test('pacientes?limit fica entre 1 e 1000', async () => {
   D.tx(() => { for (let i = 0; i < 1001; i++) D.run('INSERT INTO pacientes (numero, nome, ativo) VALUES (?,?,1)', 500000 + i, 'Limite ' + i); });
   const n = async l => JSON.parse((await pedido('GET', '/api/pacientes?limit=' + l, { ck: ck.admin })).texto).length;
@@ -191,6 +203,16 @@ test('pacientes?limit fica entre 1 e 1000', async () => {
   assert.equal(await n('abc'), 200); // por omissão
   assert.equal(await n(100000), 1000);
   assert.equal(await n('Infinity'), 1000);
+});
+
+test('t/pacientes (lista) devolve no máximo 1000 fichas e sem fotografias; a ficha por id traz a foto', async () => {
+  const foto = 'data:image/jpeg;base64,' + 'A'.repeat(1000);
+  const id = JSON.parse((await pedido('POST', '/api/t/pacientes', { ck: ck.admin, corpo: { nome: 'Com Foto', foto } })).texto).id;
+  const lista = JSON.parse((await pedido('GET', '/api/t/pacientes', { ck: ck.admin })).texto);
+  assert.equal(lista.length, 1000);
+  assert.ok(lista.every(p => !('foto' in p) && p.nome));
+  assert.deepEqual(JSON.parse((await pedido('GET', `/api/t/pacientes?id=${id}`, { ck: ck.admin })).texto).map(p => p.nome), ['Com Foto']);
+  assert.equal(JSON.parse((await pedido('GET', `/api/t/pacientes/${id}`, { ck: ck.admin })).texto).foto, foto);
 });
 
 test('erro 500 não expõe detalhes internos (só no console)', async () => {

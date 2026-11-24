@@ -67,6 +67,20 @@ test('ficheiro com mais de 20 MB é recusado com 413', async () => {
   assert.equal((await enviar(pid, grande, 'categoria=RX')).status, 413);
 });
 
+test('ficheiro com mais de 20 MB sem Content-Length (chunked) também dá 413, não ligação cortada', async () => {
+  const status = await new Promise((resolve, reject) => {
+    const u = new URL(`${base}/api/pacientes/${pid}/anexos?categoria=RX`);
+    const r = require('node:http').request({ host: u.hostname, port: u.port, path: u.pathname + u.search, method: 'POST',
+      headers: { 'Content-Type': 'application/octet-stream', Cookie: cookie, 'Transfer-Encoding': 'chunked' } }, res => { res.resume(); resolve(res.statusCode); });
+    r.on('error', reject);
+    const mb = Buffer.alloc(1024 * 1024); PNG.copy(mb);
+    for (let i = 0; i < 21; i++) r.write(mb);
+    r.end();
+  });
+  assert.equal(status, 413);
+  assert.equal((await api('GET', 'me')).status, 200);
+});
+
 test('sem sessão não se carrega nem se descarrega', async () => {
   const a = (await enviar(pid, PNG, 'categoria=Outro')).body;
   assert.equal((await enviar(pid, PNG, 'categoria=Outro', '')).status, 401);

@@ -67,9 +67,11 @@ test('nota de crédito parcial não liberta o tratamento para nova faturação',
 });
 
 test('datas dos documentos seguem a ordem da série', async () => {
-  const amanha = new Date(Date.now() + 864e5); const fut = `${amanha.getFullYear()}-${String(amanha.getMonth() + 1).padStart(2, '0')}-${String(amanha.getDate()).padStart(2, '0')}`;
+  // datas de calendário (setDate), não ±24 h: na mudança da hora o dia tem 23 ou 25 h
+  const dia = n => { const d = new Date(); d.setDate(d.getDate() + n); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+  const fut = dia(1);
   assert.equal((await api('POST', 'documentos', { tipo: 'FR', paciente_id: pid, data: fut, linhas: [{ descricao: 'x', preco: 10 }] })).status, 400);
-  const ontem = new Date(Date.now() - 864e5); const ant = `${ontem.getFullYear()}-${String(ontem.getMonth() + 1).padStart(2, '0')}-${String(ontem.getDate()).padStart(2, '0')}`;
+  const ant = dia(-1);
   if (ant.slice(0, 4) === hoje().slice(0, 4)) assert.equal((await api('POST', 'documentos', { tipo: 'FR', paciente_id: pid, data: ant, linhas: [{ descricao: 'x', preco: 10 }] })).status, 400);
 });
 

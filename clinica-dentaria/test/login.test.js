@@ -201,3 +201,20 @@ test('CSRF: pedido "simples" text/plain com JSON e Origin alheia é recusado', a
     const r = await pedido('POST', '/api/notas', { ck: c, tipo: 'text/plain', headers: { Origin: 'http://atacante.example' }, corpo: JSON.stringify({ paciente_id: pid, texto: 'csrf' }) });
     assert.ok([403, 415].includes(r.status), `${r.status} ${r.texto}`);
   });
+
+test('o último administrador ativo não se pode despromover nem desativar; com dois administradores pode', async () => {
+  const eu = D.get("SELECT id FROM users WHERE login='admin'").id;
+  const put = (ck, id, corpo) => pedido('PUT', `/api/users/${id}`, { ck, corpo });
+  assert.equal((await put(ckAdmin, eu, { perfil: 'rececao' })).status, 409);
+  assert.equal((await put(ckAdmin, eu, { ativo: 0 })).status, 400);
+  assert.equal(D.get('SELECT perfil FROM users WHERE id=?', eu).perfil, 'admin');
+  assert.equal((await pedido('POST', '/api/users', { ck: ckAdmin, corpo: { nome: 'Admin 2', login: 'admin2', password: 'provisoria1', perfil: 'admin' } })).status, 200);
+  const c2 = sid(await entrar('admin2', 'provisoria1', { ip: novoIp() }));
+  assert.equal((await pedido('POST', '/api/password', { ck: c2, corpo: { atual: 'provisoria1', nova: 'palavra-boa-2' } })).status, 200);
+  const id2 = D.get("SELECT id FROM users WHERE login='admin2'").id;
+  assert.equal((await put(c2, id2, { perfil: 'rececao' })).status, 200); // o admin original continua
+  assert.equal((await put(ckAdmin, eu, { perfil: 'rececao' })).status, 409); // agora volta a ser o último
+  assert.equal((await put(ckAdmin, id2, { perfil: 'admin' })).status, 200);
+  assert.equal((await put(ckAdmin, id2, { ativo: 0 })).status, 200);
+  assert.equal(D.get("SELECT COUNT(*) n FROM users WHERE perfil='admin' AND ativo=1").n, 1);
+});

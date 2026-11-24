@@ -24,21 +24,12 @@ function validar(o) {
   if (o.descricao != null) o.descricao = String(o.descricao).slice(0, 500);
 }
 
-function lerBinario(req) {
-  return new Promise((resolve, reject) => {
-    if (Number(req.headers['content-length']) > LIMITE) return reject(erro(413, 'O ficheiro excede 20 MB'));
-    let size = 0; const chunks = [];
-    req.on('data', c => { size += c.length; if (size > LIMITE) { reject(erro(413, 'O ficheiro excede 20 MB')); req.destroy(); } else chunks.push(c); });
-    req.on('end', () => resolve(Buffer.concat(chunks)));
-    req.on('error', reject);
-  });
-}
-
-async function carregar(req, pid, q, user) {
+// lerCorpo: lê o corpo binário até LIMITE (o servidor responde 413 acima disso)
+async function carregar(pid, q, user, lerCorpo) {
   if (!D.get('SELECT id FROM pacientes WHERE id=?', pid)) throw erro(404, 'Paciente não encontrado');
   const o = { categoria: q.get('categoria') || 'Outro', descricao: q.get('descricao') || null, dente: q.get('dente') || null, data: q.get('data') || null };
   validar(o);
-  const buf = await lerBinario(req);
+  const buf = await lerCorpo();
   if (!buf.length) throw erro(400, 'Ficheiro vazio');
   const tipo = TIPOS.find(t => t.ok(buf));
   if (!tipo) throw erro(415, 'Tipo de ficheiro não aceite (JPG, PNG, WebP ou PDF)');
@@ -93,4 +84,4 @@ function antesCrud(method, id, o, user) {
   }
 }
 
-module.exports = { carregar, servir, antesCrud, CATEGORIAS };
+module.exports = { carregar, servir, antesCrud, CATEGORIAS, LIMITE };

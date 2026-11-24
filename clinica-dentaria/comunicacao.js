@@ -143,4 +143,4 @@ function renderModelo(texto, ctx) {
   return String(texto || '').replace(/\{(\w+)\}/g, (m, k) => (ctx[k] !== undefined && ctx[k] !== null ? ctx[k] : m));
 }
 
-module.exports = { enviarEmail, enviarSMS, renderModelo, normalizarTelefone };
+module.exports = { enviarEmail, enviarSMS, renderModelo };

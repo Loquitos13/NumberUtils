@@ -223,7 +223,7 @@ test('orçamento aceite: liga o tratamento planeado e cria os restantes, sem dup
   assert.equal(ac.estado, 'aceite');
   const trats = (await ok('GET', `pacientes/${p}/tratamentos`)).map(x => [x.descricao, x.preco, x.desconto_pct, x.estado, x.orcamento_id]).sort();
   assert.deepEqual(trats, [['Coroa', 450, 10, 'planeado', o.id], ['Coroa', 450, 10, 'planeado', o.id], ['Restauração', 90, 0, 'planeado', o.id]]);
-  assert.equal((await api('POST', `orcamentos/${o.id}/aceitar`)).status, 400);
+  assert.equal((await api('POST', `orcamentos/${o.id}/aceitar`)).status, 409);
   assert.equal((await ok('GET', `pacientes/${p}/tratamentos`)).length, 3);
   assert.equal((await ok('GET', `pacientes/${p}/resumo`)).por_realizar, 900);
 });
@@ -244,6 +244,35 @@ test('orçamento recusado não cria tratamentos; total com IVA', async () => {
   assert.equal(o.validade, '2026-04-10'); // 90 dias
   assert.equal((await ok('POST', `orcamentos/${o.id}/recusar`)).estado, 'recusado');
   assert.deepEqual(await ok('GET', `pacientes/${p}/tratamentos`), []);
+});
+
+test('orçamento só se edita, aceita ou recusa enquanto está aberto; o estado não vem do PUT', async () => {
+  const p = await paciente('Orçamento Estados');
+  const linhas = [{ descricao: 'Coroa', preco: 400 }];
+  const o = await ok('POST', 'orcamentos', { paciente_id: p, linhas });
+  assert.equal((await ok('PUT', `orcamentos/${o.id}`, { paciente_id: p, linhas, estado: 'aceite' })).estado, 'aberto');
+  await ok('POST', `orcamentos/${o.id}/aceitar`);
+  // reabrir pelo PUT e voltar a aceitar duplicaria os tratamentos
+  assert.equal((await api('PUT', `orcamentos/${o.id}`, { paciente_id: p, linhas, estado: 'aberto' })).status, 409);
+  assert.equal((await api('POST', `orcamentos/${o.id}/aceitar`)).status, 409);
+  assert.equal((await api('POST', `orcamentos/${o.id}/recusar`)).status, 409);
+  assert.equal((await ok('GET', `orcamentos/${o.id}`)).estado, 'aceite');
+  assert.equal((await ok('GET', `pacientes/${p}/tratamentos`)).length, 1);
+  const r = await ok('POST', 'orcamentos', { paciente_id: p, linhas });
+  await ok('POST', `orcamentos/${r.id}/recusar`);
+  assert.equal((await api('POST', `orcamentos/${r.id}/aceitar`)).status, 409);
+  assert.equal((await api('PUT', `orcamentos/${r.id}`, { paciente_id: p, linhas })).status, 409);
+  assert.equal((await ok('GET', `pacientes/${p}/tratamentos`)).length, 1);
+  assert.equal((await api('PUT', 'orcamentos/999999', { paciente_id: p, linhas })).status, 404);
+});
+
+test('"por realizar" da ficha arredonda linha a linha como a fatura (3 € −12,5% com IVA 6% = 2,79 €)', async () => {
+  const p = await paciente('Por Realizar Cêntimos');
+  const t = { paciente_id: p, descricao: 'Polimento', preco: 3, desconto_pct: 12.5, iva: 6, estado: 'planeado' };
+  await ok('POST', 't/tratamentos', t); await ok('POST', 't/tratamentos', t);
+  const fat = await okDoc('PF', p, [{ ...t }, { ...t }]);
+  assert.equal(fat.total, 5.58); // 2 × (2,63 + 0,16)
+  assert.equal((await ok('GET', `pacientes/${p}/resumo`)).por_realizar, fat.total);
 });
 
 // ---------- entidades ----------

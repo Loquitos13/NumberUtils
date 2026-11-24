@@ -22,7 +22,7 @@ async function api(metodo, url, corpo) {
 const ok = async (...a) => { const r = await api(...a); assert.equal(r.status, 200, JSON.stringify(r.body)); return r.body; };
 const iso = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const HOJE = iso(new Date());
-const ONTEM = iso(new Date(Date.now() - 864e5));
+const ONTEM = (d => (d.setDate(d.getDate() - 1), iso(d)))(new Date()); // dia de calendário, não −24 h (mudança da hora)
 const soma = (rows, k) => Math.round(rows.reduce((a, r) => a + r[k], 0) * 100) / 100;
 
 let est, modelos;

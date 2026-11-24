@@ -15,6 +15,8 @@ const ZIP = require('./zip');
 const { all, get, run, tx, validarNif } = D;
 
 const PORT = Number(process.env.PORT) || 3000;
+// atrás de um proxy todos os postos têm o IP do proxy: o bloqueio de login passa a usar o endereço que o proxy acrescenta ao X-Forwarded-For
+const TRUST_PROXY = process.env.TRUST_PROXY === '1';
 const PUBLIC = path.join(__dirname, 'public');
 
 // ---------- utilitários ----------
@@ -22,11 +24,13 @@ class HttpError extends Error { constructor(status, msg) { super(msg); this.stat
 // arredonda ao cêntimo, meio cêntimo para longe do zero (também em NC/saldos negativos);
 // toPrecision(15) limpa o erro binário (0.575*100 = 57.4999… → 57.5) sem depender da magnitude
 const r2 = n => { const v = Number(n) || 0; return Math.sign(v) * Math.round(Number((Math.abs(v) * 100).toPrecision(15))) / 100 || 0; };
-const agora = () => { const d = new Date(); return `${today()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; };
-const today = () => {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-};
+const hhmm = t => `${String(Math.floor(t / 60)).padStart(2, '0')}:${String(t % 60).padStart(2, '0')}`; // minutos → 'hh:mm'
+const minutos = h => { const [a, b] = String(h).split(':').map(Number); return a * 60 + (b || 0); }; // 'hh:mm' → minutos
+// data e hora locais (não UTC): 'aaaa-mm-dd' e 'hh:mm'
+const dataLocal = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+const horaLocal = d => hhmm(d.getHours() * 60 + d.getMinutes());
+const today = () => dataLocal();
+const agora = () => { const d = new Date(); return `${dataLocal(d)} ${horaLocal(d)}`; };
 
 function send(res, status, body, headers = {}) {
   const data = typeof body === 'string' || Buffer.isBuffer(body) ? body : JSON.stringify(body);
@@ -34,7 +38,8 @@ function send(res, status, body, headers = {}) {
   res.end(data);
 }
 
-function readBody(req, res, limite = 5e6) {
+// raw: devolve o Buffer (uploads) em vez de JSON
+function readBody(req, res, limite = 5e6, raw = false) {
   return new Promise((resolve, reject) => {
     let size = 0; const chunks = [];
     req.on('data', c => {
@@ -45,6 +50,7 @@ function readBody(req, res, limite = 5e6) {
       if (size > 4 * limite) req.destroy();
     });
     req.on('end', () => {
+      if (raw) return resolve(Buffer.concat(chunks));
       if (!chunks.length) return resolve({});
       // só JSON: um formulário ou text/plain de outro site não passa (defesa contra CSRF além do SameSite)
       if (!/^application\/json\b/i.test(req.headers['content-type'] || '')) return reject(new HttpError(415, 'O corpo do pedido tem de ser JSON'));
@@ -129,7 +135,10 @@ function crud(method, table, id, query, body, user) {
     if (id) { const row = get(`SELECT * FROM ${table} WHERE id=?`, id); if (!row) throw new HttpError(404, 'Não encontrado'); return row; }
     const where = []; const params = [];
     for (const c of [...def.cols, ...(def.filtros || []), 'id']) if (query.has(c)) { where.push(`${c} = ?`); params.push(query.get(c)); }
-    return all(`SELECT * FROM ${table} ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ORDER BY ${def.order}`, ...params);
+    // pacientes: as fotos (base64) de milhares de fichas davam dezenas de MB; a lista vem sem elas e limitada
+    const pac = table === 'pacientes';
+    return all(`SELECT ${pac ? ['id', 'criado_em', 'alterado_por', 'alterado_em', ...def.cols.filter(c => c !== 'foto')].join(',') : '*'} FROM ${table}
+      ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ORDER BY ${def.order}${pac ? ' LIMIT 1000' : ''}`, ...params);
   }
   if (def.admin) requireAdmin(user);
   // as notas clínicas só se escrevem por /api/notas (quem criou fica registado; apagar só o admin)
@@ -224,14 +233,18 @@ function guardarMarcacao(id, body, user) {
   if (!m.medico_id) throw new HttpError(400, 'Escolha o médico');
   if (!m.inicio || !m.fim || m.fim <= m.inicio) throw new HttpError(400, 'Horário inválido');
   if (!m.estado_id) o.estado_id = m.estado_id = get("SELECT id FROM estados WHERE ativo=1 ORDER BY ordem LIMIT 1").id;
-  if (!body.forcar) {
-    const inativas = "(SELECT id FROM estados WHERE categoria IN ('INATIVAS','FALTAS'))";
-    const c1 = get(`SELECT m.id, p.nome FROM marcacoes m JOIN pacientes p ON p.id=m.paciente_id WHERE m.medico_id=? AND m.inicio < ? AND m.fim > ? AND m.id != ? AND m.estado_id NOT IN ${inativas}`,
-      m.medico_id, m.fim, m.inicio, id || 0);
+  const inativas = "(SELECT id FROM estados WHERE categoria IN ('INATIVAS','FALTAS'))";
+  // só estado/notas mudam, ou passa a desmarcada/falta: não há horário novo a validar (anular uma de duas sobrepostas tem de passar)
+  const mesmoHorario = id && ['inicio', 'fim', 'medico_id', 'gabinete_id'].every(k => String(m[k] ?? '') === String(atual[k] ?? ''));
+  const libertaHorario = get(`SELECT 1 FROM estados WHERE id=? AND id IN ${inativas}`, m.estado_id);
+  if (!body.forcar && !mesmoHorario && !libertaHorario) {
+    // inicio >= dia anterior: a pesquisa usa o índice em vez de percorrer anos de agenda (uma consulta não dura mais de 24 h)
+    const c1 = get(`SELECT m.id, p.nome FROM marcacoes m JOIN pacientes p ON p.id=m.paciente_id WHERE m.medico_id=? AND m.inicio < ? AND m.inicio >= date(?, '-1 day') AND m.fim > ? AND m.id != ? AND m.estado_id NOT IN ${inativas}`,
+      m.medico_id, m.fim, m.inicio, m.inicio, id || 0);
     if (c1) throw new HttpError(409, `O médico já tem uma marcação nesse horário (${c1.nome}).`);
     if (m.gabinete_id) {
-      const c2 = get(`SELECT m.id FROM marcacoes m WHERE m.gabinete_id=? AND m.inicio < ? AND m.fim > ? AND m.id != ? AND m.estado_id NOT IN ${inativas}`,
-        m.gabinete_id, m.fim, m.inicio, id || 0);
+      const c2 = get(`SELECT m.id FROM marcacoes m WHERE m.gabinete_id=? AND m.inicio < ? AND m.inicio >= date(?, '-1 day') AND m.fim > ? AND m.id != ? AND m.estado_id NOT IN ${inativas}`,
+        m.gabinete_id, m.fim, m.inicio, m.inicio, id || 0);
       if (c2) throw new HttpError(409, 'O gabinete já está ocupado nesse horário.');
     }
     const fer = feriadosAno(Number(m.inicio.slice(0, 4))).find(f => f.data === m.inicio.slice(0, 10));
@@ -258,11 +271,10 @@ const TIPOS_BLOQ = { ferias: 'Férias', congresso: 'Congresso/formação', ausen
 
 // intervalos ocupados (marcações ativas + bloqueios) de um médico num dia
 function ocupacaoDia(medicoId, dia) {
-  const marc = all(`SELECT inicio, fim FROM marcacoes WHERE medico_id=? AND inicio LIKE ? AND estado_id NOT IN (SELECT id FROM estados WHERE categoria IN ('INATIVAS','FALTAS'))`, medicoId, dia + '%');
+  const marc = all(`SELECT inicio, fim FROM marcacoes WHERE medico_id=? AND inicio >= ? AND inicio < ? AND estado_id NOT IN (SELECT id FROM estados WHERE categoria IN ('INATIVAS','FALTAS'))`, medicoId, dia, dia + 'U');
   const bl = all('SELECT inicio, fim FROM bloqueios WHERE (medico_id=? OR medico_id IS NULL) AND inicio <= ? AND fim >= ?', medicoId, dia + 'T23:59', dia + 'T00:00');
   return [...marc, ...bl];
 }
-const hhmm = t => `${String(Math.floor(t / 60)).padStart(2, '0')}:${String(t % 60).padStart(2, '0')}`;
 
 // ---------- documentos (faturação) ----------
 // tipos de documento (SAF-T PT): faturação FT/FS/FR/ND/NC, recibos RC, documentos de conferência PF
@@ -474,10 +486,11 @@ function contaCorrente(pid) {
 function guardarOrcamento(id, body, user) {
   const linhas = Array.isArray(body.linhas) ? body.linhas.filter(l => l.descricao) : [];
   if (!body.paciente_id) throw new HttpError(400, 'Escolha o paciente');
+  if (id) orcamentoAberto(id);
   return tx(() => {
     let total = 0;
     for (const l of linhas) { const c = calcLinha(l); total += c.base + c.iva; }
-    const o = pick(body, ['paciente_id', 'medico_id', 'data', 'validade', 'estado', 'notas']);
+    const o = pick(body, ['paciente_id', 'medico_id', 'data', 'validade', 'notas']); // o estado só muda por aceitar/recusar
     o.total = r2(total);
     if (!o.data) o.data = today();
     if (!/^\d{4}-\d{2}-\d{2}$/.test(o.data) || isNaN(new Date(o.data))) throw new HttpError(400, 'Data inválida');
@@ -502,9 +515,14 @@ function orcamentoCompleto(id) {
   o.linhas = all('SELECT * FROM orcamento_linhas WHERE orcamento_id=? ORDER BY id', id);
   return o;
 }
-function aceitarOrcamento(id, user) {
+// aceite ou recusado é final: voltar a aceitar duplicaria os tratamentos
+function orcamentoAberto(id) {
   const o = orcamentoCompleto(id);
-  if (o.estado === 'aceite') throw new HttpError(400, 'Orçamento já aceite');
+  if (o.estado !== 'aberto') throw new HttpError(409, `O orçamento já está ${o.estado}`);
+  return o;
+}
+function aceitarOrcamento(id, user) {
+  const o = orcamentoAberto(id);
   // cada unidade vira um tratamento planeado: no máximo um por dente
   if (o.linhas.some(l => Math.round(l.qtd) > 32)) throw new HttpError(400, 'Quantidade acima de 32 numa linha: divida-a antes de aceitar o orçamento');
   tx(() => {
@@ -526,10 +544,12 @@ function aceitarOrcamento(id, user) {
 // ---------- stocks ----------
 const SINAL = "CASE WHEN tipo IN ('entrada','ajuste+','transf_entrada') THEN qtd WHEN tipo IN ('saida','ajuste-','transf_saida') THEN -qtd ELSE qtd END";
 function existencias(q) {
-  const armFilter = q.get('armazem_id') ? 'AND m.armazem_id = ' + Number(q.get('armazem_id')) : '';
+  const arm = q.get('armazem_id') ? Number(q.get('armazem_id')) : null;
+  if (arm !== null && !Number.isInteger(arm)) throw new HttpError(400, 'armazem_id inválido');
+  const armFilter = arm !== null ? 'AND m.armazem_id = ?' : '';
   const rows = all(`SELECT p.*, COALESCE((SELECT SUM(${SINAL}) FROM movimentos_stock m WHERE m.produto_id=p.id ${armFilter}),0) qtd,
     (SELECT MIN(validade) FROM (SELECT lote, validade, SUM(${SINAL}) s FROM movimentos_stock m WHERE m.produto_id=p.id AND validade IS NOT NULL ${armFilter} GROUP BY lote, validade HAVING s > 0)) prox_validade
-    FROM produtos p WHERE p.ativo=1 ORDER BY p.nome`);
+    FROM produtos p WHERE p.ativo=1 ORDER BY p.nome`, ...(arm !== null ? [arm, arm] : []));
   const lim = D.addDays(today(), 60);
   for (const r of rows) {
     r.qtd = r2(r.qtd);
@@ -617,7 +637,7 @@ async function enviarMensagens(body, user) {
       else {
         try {
           if (canal === 'sms') await COM.enviarSMS(cfg, { para: destino, texto });
-          else await COM.enviarEmail(cfg, { para: destino, assunto, texto, html: `<div style="font-family:Arial,sans-serif;font-size:14px;line-height:1.5">${texto.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/\n/g, '<br>')}</div>` });
+          else await COM.enviarEmail(cfg, { para: destino, assunto, texto, html: `<div style="font-family:Arial,sans-serif;font-size:14px;line-height:1.5">${escHtml(texto).replace(/\n/g, '<br>')}</div>` });
           estado = 'enviado';
         } catch (e) { estado = 'erro'; erro = e.message; }
       }
@@ -642,7 +662,7 @@ async function lembretesAutomaticos() {
   try {
     const horas = Number(cfg.lembrete_horas) || 24;
     const agoraD = new Date(); const lim = new Date(agoraD.getTime() + horas * 3600e3);
-    const f = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}T${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+    const f = d => `${dataLocal(d)}T${horaLocal(d)}`;
     const ids = all(`SELECT m.id FROM marcacoes m LEFT JOIN estados e ON e.id=m.estado_id WHERE m.inicio > ? AND m.inicio <= ? AND m.lembrete_em IS NULL
       AND COALESCE(e.categoria,'OUTRAS') NOT IN ('INATIVAS','FALTAS','REALIZADAS')`, f(agoraD), f(lim)).map(r => r.id);
     for (const id of ids) {
@@ -721,8 +741,8 @@ function listagem(tipo, q) {
       return { titulo: 'Faltas', cols: agCols, rows };
     }
     case 'ocupacao': {
-      const cfg = D.getConfig(); const toM = h => { const [a, b] = h.split(':').map(Number); return a * 60 + b; };
-      const aberto = toM(cfg.agenda_fim || '20:00') - toM(cfg.agenda_inicio || '08:00');
+      const cfg = D.getConfig();
+      const aberto = minutos(cfg.agenda_fim || '20:00') - minutos(cfg.agenda_inicio || '08:00');
       const dias = (cfg.agenda_dias || '1,2,3,4,5').split(',').map(Number);
       ateUmAno();
       const meds = all('SELECT id, nome FROM medicos WHERE ativo=1 ORDER BY nome').filter(m => !f('medico_id') || String(m.id) === f('medico_id'));
@@ -849,7 +869,7 @@ function registarFalha(k, janela) {
 }
 
 // ---------- router da API ----------
-const SO_LEITURA = ['me', 'servicos-frequentes', 'lookups', 'agenda', 'bloqueios', 'espera', 'listagens', 'feriados', 'devedores', 'proteses', 'estatisticas', 'aniversarios', 'dashboard', 'logs', 'backup'];
+const SO_LEITURA = ['me', 'servicos-frequentes', 'lookups', 'agenda', 'bloqueios', 'espera', 'listagens', 'feriados', 'devedores', 'proteses', 'estatisticas', 'aniversarios', 'dashboard', 'logs', 'backup', 'revisoes'];
 async function api(req, res, url) {
   const parts = url.pathname.split('/').filter(Boolean).slice(1); // remove 'api'
   const q = url.searchParams;
@@ -868,7 +888,8 @@ async function api(req, res, url) {
   if (parts[0] === 'login') {
     if (m !== 'POST') throw new HttpError(405, 'Método não suportado');
     const login = String(body.login || '').trim();
-    const ip = 'ip:' + (req.socket.remoteAddress || ''), conta = 'conta:' + login.normalize('NFKC').toLowerCase().slice(0, 100);
+    const xff = TRUST_PROXY && String(req.headers['x-forwarded-for'] || '').split(',').at(-1).trim();
+    const ip = 'ip:' + (xff || req.socket.remoteAddress || ''), conta = 'conta:' + login.normalize('NFKC').toLowerCase().slice(0, 100);
     const bloq = bloqueioLogin(ip, conta);
     if (bloq) throw new HttpError(429, bloq);
     const u = get('SELECT * FROM users WHERE login=? AND ativo=1', login);
@@ -946,7 +967,11 @@ async function api(req, res, url) {
       }
       if (m === 'PUT' && id) {
         if (id === user.id && o.ativo === 0) throw new HttpError(400, 'Não pode desativar o seu próprio utilizador');
-        try { update('users', id, o); } catch { throw new HttpError(409, 'Esse login já existe'); }
+        tx(() => {
+          try { update('users', id, o); } catch { throw new HttpError(409, 'Esse login já existe'); }
+          // sem nenhum administrador ativo ninguém volta a configurar a clínica
+          if (!get("SELECT 1 FROM users WHERE perfil='admin' AND ativo=1")) throw new HttpError(409, 'Tem de ficar pelo menos um administrador ativo');
+        });
         if (o.ativo === 0 || o.pass_hash) run('DELETE FROM sessions WHERE user_id=?', id);
         return { ok: true };
       }
@@ -988,7 +1013,9 @@ async function api(req, res, url) {
           SUM(CASE WHEN e.categoria='FALTAS' THEN 1 ELSE 0 END) faltas, SUM(CASE WHEN e.categoria='INATIVAS' THEN 1 ELSE 0 END) inativas,
           SUM(CASE WHEN m.inicio >= ? AND e.categoria NOT IN ('INATIVAS','FALTAS') THEN 1 ELSE 0 END) futuras
           FROM marcacoes m LEFT JOIN estados e ON e.id=m.estado_id WHERE m.paciente_id=?`, today(), id);
-        p.por_realizar = r2(get("SELECT COALESCE(SUM(preco*(1-COALESCE(desconto_pct,0)/100.0)*(1+COALESCE(iva,0)/100.0)),0) v FROM tratamentos WHERE paciente_id=? AND estado='planeado'", id).v);
+        // linha a linha com as contas da fatura (calcLinha), para o valor bater ao cêntimo com o documento emitido
+        p.por_realizar = r2(all("SELECT preco, desconto_pct, iva, iva_id FROM tratamentos WHERE paciente_id=? AND estado='planeado'", id)
+          .reduce((a, t) => { const c = calcLinha(t); return a + c.base + c.iva; }, 0));
         p.alterado_por_nome = p.alterado_por ? get('SELECT nome FROM users WHERE id=?', p.alterado_por)?.nome : null;
         const tit = p.agregado_id || id;
         p.agregado = all('SELECT id, nome, numero, data_nasc, agregado_id FROM pacientes WHERE (id=? OR agregado_id=?) AND id != ? ORDER BY nome', tit, tit, id);
@@ -997,7 +1024,7 @@ async function api(req, res, url) {
         p.ultima = get(`${AGENDA_SQL} WHERE m.paciente_id=? AND m.inicio < ? ORDER BY m.inicio DESC LIMIT 1`, id, today());
         return p;
       }
-      if (id && binario) return ANX.carregar(req, id, q, user);
+      if (id && binario) return ANX.carregar(id, q, user, () => readBody(req, res, ANX.LIMITE, true));
       if (id && r2_ === 'marcacoes') return all(`${AGENDA_SQL} WHERE m.paciente_id=? ORDER BY m.inicio DESC`, id);
       if (id && r2_ === 'em-aberto') return emAberto(id);
       if (id && r2_ === 'tratamentos') return all(`SELECT t.*, md.nome medico_nome, s.codigo servico_codigo, d.numero documento_numero, d.tipo documento_tipo, d.total documento_total,
@@ -1013,12 +1040,12 @@ async function api(req, res, url) {
         if (m === 'PUT') return ANAMNESE.guardar(id, body, user);
       }
       if (id && r2_ === 'contacorrente') return contaCorrente(id);
-      if (id && r2_ === 'documentos') return all('SELECT * FROM documentos WHERE paciente_id=? ORDER BY data DESC, id DESC', id);
       break;
     }
     case 'anamnese': {
+      if (m !== 'PUT') break; // lê-se no resumo da ficha
       if (!id) throw new HttpError(400, 'Indique o paciente');
-      if (m === 'GET') return get('SELECT * FROM anamnese WHERE paciente_id=?', id) || {};
+      if (!get('SELECT 1 FROM pacientes WHERE id=?', id)) throw new HttpError(404, 'Paciente não encontrado');
       const o = pick(body, ['alergias', 'doencas', 'medicacao', 'fumador', 'gravidez', 'hipertensao', 'diabetes', 'cardiaco', 'anticoagulantes', 'hepatite', 'observacoes']);
       o.atualizado_em = agora();
       const keys = Object.keys(o);
@@ -1068,19 +1095,19 @@ async function api(req, res, url) {
       const cfg = D.getConfig();
       const dias = (q.get('dias') || cfg.agenda_dias || '1,2,3,4,5').split(',').filter(Boolean).map(Number);
       if (!dias.every(x => Number.isInteger(x) && x >= 0 && x <= 6)) throw new HttpError(400, 'Parâmetro inválido: dias');
-      const toM = h => { const [a, b] = String(h).split(':').map(Number); return a * 60 + (b || 0); };
-      const hMin = Math.max(toM(cfg.agenda_inicio || '08:00'), toM(q.get('hora_min') || '00:00'));
-      const hMax = Math.min(toM(cfg.agenda_fim || '20:00'), toM(q.get('hora_max') || '23:59'));
+      const hMin = Math.max(minutos(cfg.agenda_inicio || '08:00'), minutos(q.get('hora_min') || '00:00'));
+      const hMax = Math.min(minutos(cfg.agenda_fim || '20:00'), minutos(q.get('hora_max') || '23:59'));
       const periodos = { manha: q.get('manha') !== '0', tarde: q.get('tarde') !== '0', noite: q.get('noite') === '1' };
       const okPeriodo = t => (t < 780 && periodos.manha) || (t >= 780 && t < 1200 && periodos.tarde) || (t >= 1200 && periodos.noite);
       const incluirFeriados = q.get('feriados') === '1';
       const limite = inteiro('limite', 20, 1, 100);
       const step = Math.max(5, Number(cfg.agenda_intervalo) || 15);
       const out = []; const d = new Date((q.get('de') || today()) + 'T12:00:00'); const now = new Date();
+      const fer = {}; const feriado = dia => (fer[dia.slice(0, 4)] ||= new Set(feriadosAno(Number(dia.slice(0, 4))).map(x => x.data))).has(dia);
       for (let i = 0; i < 120 && out.length < limite; i++, d.setDate(d.getDate() + 1)) {
-        const dia = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+        const dia = dataLocal(d);
         if (!dias.includes(d.getDay())) continue;
-        if (!incluirFeriados && feriadosAno(d.getFullYear()).some(f => f.data === dia)) continue;
+        if (!incluirFeriados && feriado(dia)) continue;
         const ocup = medicos.flatMap(mid => ocupacaoDia(mid, dia));
         let porDia = 0;
         for (let t = hMin; t + dur <= hMax && out.length < limite && porDia < 4; t += step) {
@@ -1114,7 +1141,7 @@ async function api(req, res, url) {
       }
       if (m === 'GET' && id) return orcamentoCompleto(id);
       if (m === 'POST' && id && r2_ === 'aceitar') return aceitarOrcamento(id, user);
-      if (m === 'POST' && id && r2_ === 'recusar') { run("UPDATE orcamentos SET estado='recusado' WHERE id=?", id); return orcamentoCompleto(id); }
+      if (m === 'POST' && id && r2_ === 'recusar') { orcamentoAberto(id); run("UPDATE orcamentos SET estado='recusado' WHERE id=?", id); return orcamentoCompleto(id); }
       if (m === 'POST') return guardarOrcamento(null, body, user);
       if (m === 'PUT' && id) return guardarOrcamento(id, body, user);
       if (m === 'DELETE' && id) { run('UPDATE tratamentos SET orcamento_id=NULL WHERE orcamento_id=?', id); run('DELETE FROM orcamentos WHERE id=?', id); return { ok: true }; }
@@ -1214,7 +1241,7 @@ async function api(req, res, url) {
     }
     case 'dashboard': {
       const d = today();
-      const marc = all(`${AGENDA_SQL} WHERE m.inicio LIKE ? ORDER BY m.inicio`, d + '%');
+      const marc = all(`${AGENDA_SQL} WHERE m.inicio >= ? AND m.inicio < ? ORDER BY m.inicio`, d, d + 'U'); // intervalo (não LIKE): usa o índice
       return {
         hoje: marc,
         proteses_atraso: get("SELECT COUNT(*) n FROM proteses WHERE fase IN ('pedido','enviado','em_prova') AND data_prevista < ?", d).n,
@@ -1279,4 +1306,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { lembretesAutomaticos, enviarMensagens, server, feriadosAno, pascoa, r2 };
+module.exports = { lembretesAutomaticos, server, pascoa, r2 };
