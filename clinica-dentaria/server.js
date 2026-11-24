@@ -278,7 +278,7 @@ function ocupacaoDia(medicoId, dia) {
 
 // ---------- documentos (faturação) ----------
 // tipos de documento (SAF-T PT): faturação FT/FS/FR/ND/NC, recibos RC, documentos de conferência PF
-const TIPOS_DOC = { FT: 'Fatura', FS: 'Fatura Simplificada', FR: 'Fatura-Recibo', ND: 'Nota de Débito', NC: 'Nota de Crédito', RC: 'Recibo', PF: 'Fatura Pró-forma' };
+const TIPOS_DOC = { FT: 'Fatura', FS: 'Fatura simplificada', FR: 'Fatura-recibo', ND: 'Nota de débito', NC: 'Nota de crédito', RC: 'Recibo', PF: 'Fatura pró-forma' };
 const DEBITO = ['FT', 'FS', 'FR', 'ND'];
 const SQL_DEB = "('FT','FS','FR','ND')", SQL_FAT = "('FT','FS','FR','ND','NC')";
 const LIMITE_FS = 100; // art. 40.º CIVA: prestações de serviços a não sujeitos passivos

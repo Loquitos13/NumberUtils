@@ -492,6 +492,7 @@ table.perio tr.ant td, table.perio tr.ni td { color: var(--muted); }
 
 /* ---------- toque (tablet) ---------- */
 @media (pointer: coarse) {
+  .mais-menu > button, .mais-menu > a { min-height: 32px; }
   button, .btn, button.sm, .btn.sm, .seg button, #side nav a, input, select, .tabs a { min-height: 32px; }
   button.icon, button.sm.icon { min-width: 32px; justify-content: center; }
   input[type=checkbox], input[type=radio] { width: 20px; height: 20px; }

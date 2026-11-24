@@ -129,7 +129,8 @@ async function main() {
     await check('Feedback: erro de validação legível (FS > 100 €)', async () => {
       await nav('#/paciente/1/tratamentos'); await toasts();
       await tratLinha('Implante').check(); await idle();
-      await page.click('[data-act="FS"]'); await page.waitForSelector(modalTopo);
+      await page.click('[data-act="faturar"]'); await page.waitForSelector(modalTopo);
+      await page.selectOption(`${modalTopo} select[name=tipo]`, 'FS');
       await page.locator(`${modalTopo} footer button.primary`).click();
       const t = await esperaToast(/./);
       assert.ok(t.err, 'o toast não é de erro');
@@ -153,13 +154,13 @@ async function main() {
 
     await check('Eficiência: FR a partir de tratamentos ≤ 5 passos', async () => {
       await fecharModais(); await nav('#/paciente/1'); await toasts(); let n = 0;
-      await page.click('.tabs button[data-t="tratamentos"]'); n++; await idle();
+      await page.click('.tabs a[href$="/tratamentos"]'); n++; await idle();
       await tratLinha('Restauração').check(); n++; await idle();
-      await page.click('[data-act="FR"]'); n++; await page.waitForSelector(modalTopo);
+      await page.click('[data-act="faturar"]'); n++; await page.waitForSelector(modalTopo);
       await page.locator(`${modalTopo} footer button.primary`).click(); n++;
       await page.waitForFunction(() => document.querySelectorAll('.modal-bg').length >= 2);
       await page.locator(`${modalTopo} footer button.primary`).click(); n++; // confirmação
-      await esperaToast(/Fatura-Recibo .* emitid/);
+      await esperaToast(/Fatura-recibo .* emitid/i);
       await page.keyboard.press('Escape'); await fecharModais();
       assert.ok(n <= 5, `${n} passos`); return `${n} passos (separador, seleção, FR, Emitir, Confirmar)`;
     });
@@ -245,7 +246,7 @@ async function main() {
       await page.keyboard.press('Space'); await idle();
       const depois = await ativo();
       assert.notEqual(depois.tag, 'BODY', 'depois de marcar a caixa o foco foi para <body> (tabela redesenhada)');
-      await tabAte(a => a.act === 'FR', 60); await page.keyboard.press('Enter'); await page.waitForSelector(modalTopo);
+      await tabAte(a => a.act === 'faturar', 60); await page.keyboard.press('Enter'); await page.waitForSelector(modalTopo);
       await tabAte(a => a.inModal && a.txt === 'Emitir', 60); await page.keyboard.press('Enter');
       await page.waitForFunction(() => document.querySelectorAll('.modal-bg').length >= 2);
       await tabAte(a => a.inModal && a.txt === 'Emitir', 10); await page.keyboard.press('Enter');
