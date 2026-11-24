@@ -62,14 +62,12 @@ ep('admin', 'POST', 'importar/pacientes', {});
 const TABELAS = { especialidades: 1, medicos: 1, gabinetes: 1, estados: 1, razoes_visita: 1, feriados: 1, entidades: 1, servicos: 1, laboratorios: 0, armazens: 1,
   produtos: 0, sms_modelos: 1, pacientes: 0, tratamentos: 0, dentes_condicoes: 0, notas_clinicas: 0, proteses: 0, ivas: 1, bloqueios: 0, lista_espera: 0,
   anamnese_perguntas: 1, anexos: 0, movimentos_stock: 0 };
-// README: "Só o administrador apaga registos clínicos"
-const CLINICOS = ['tratamentos', 'dentes_condicoes', 'proteses'];
+// README "Permissões": próteses e tratamentos realizados só o admin apaga (ver o teste dos registos clínicos abaixo)
 for (const [t, adm] of Object.entries(TABELAS)) {
   ep('todos', 'GET', `t/${t}`); ep('todos', 'GET', `t/${t}/${N}`);
   ep(adm ? 'admin' : 'todos', 'POST', `t/${t}`, {});
   ep(adm ? 'admin' : 'todos', 'PUT', `t/${t}/${N}`, {}, { soNegado: true }); // autorizados: ver o teste "PUT t/<tabela>/<id inexistente>"
-  ep(adm || CLINICOS.includes(t) || t === 'anexos' ? 'admin' : 'todos', 'DELETE', `t/${t}/${N}`, undefined,
-    CLINICOS.includes(t) ? { todo: `BUG: qualquer perfil apaga ${t} (README: só o admin apaga registos clínicos)` } : {});
+  ep(adm || ['proteses', 'anexos'].includes(t) ? 'admin' : 'todos', 'DELETE', `t/${t}/${N}`);
 }
 for (const s of ['resumo', 'perio', 'marcacoes', 'em-aberto', 'tratamentos', 'notas', 'anamnese-extra', 'contacorrente', 'documentos']) ep('todos', 'GET', `pacientes/1/${s}`);
 ep('todos', 'GET', 'pacientes'); ep('todos', 'GET', 'pacientes?q=a'); ep('todos', 'PUT', 'pacientes/1/anamnese-extra', {});
@@ -131,9 +129,27 @@ test('login público, rotas desconhecidas → 401 sem sessão e 404 com sessão'
   assert.equal((await pedido('GET', '/api/pacientes/1/desconhecido', { ck: ck.admin })).status, 404);
 });
 
-test('métodos não suportados em rotas só de leitura', { todo: 'BUG: o router ignora o método em me/lookups/agenda/dashboard/logout (DELETE/POST respondem 200; GET /api/logout termina a sessão)' }, async () => {
-  for (const [m, u] of [['DELETE', 'lookups'], ['POST', 'agenda'], ['DELETE', 'dashboard'], ['PUT', 'devedores'], ['DELETE', 'me']])
-    assert.ok([404, 405].includes((await pedido(m, '/api/' + u, { ck: ck.admin, corpo: m === 'DELETE' ? undefined : {} })).status), `${m} ${u}`);
+test('métodos não suportados em rotas só de leitura', async () => {
+  for (const [m, u] of [['DELETE', 'lookups'], ['POST', 'agenda'], ['DELETE', 'dashboard'], ['PUT', 'devedores'], ['DELETE', 'me'], ['GET', 'logout'], ['GET', 'login']])
+    assert.ok([404, 405].includes((await pedido(m, '/api/' + u, { ck: ck.admin, corpo: m === 'DELETE' || m === 'GET' ? undefined : {} })).status), `${m} ${u}`);
+  assert.equal((await pedido('GET', '/api/me', { ck: ck.admin })).status, 200, 'GET /api/logout não termina a sessão');
+});
+
+test('apagar registos clínicos: realizados e próteses só o admin; plano e odontograma qualquer perfil (com registo no log)', async () => {
+  const novo = async (t, corpo) => JSON.parse((await pedido('POST', '/api/t/' + t, { ck: ck.admin, corpo })).texto).id;
+  const pid = await novo('pacientes', { nome: 'Paciente Apagar' });
+  const realizado = await novo('tratamentos', { paciente_id: pid, descricao: 'Restauração', estado: 'realizado' });
+  const planeado = await novo('tratamentos', { paciente_id: pid, descricao: 'Destartarização', estado: 'planeado' });
+  const condicao = await novo('dentes_condicoes', { paciente_id: pid, dente: 11, condicao: 'carie' });
+  const protese = await novo('proteses', { paciente_id: pid, descricao: 'Coroa' });
+  for (const [u, id] of [['tratamentos', realizado], ['proteses', protese]])
+    assert.equal((await pedido('DELETE', `/api/t/${u}/${id}`, { ck: ck.rececao })).status, 403, u);
+  for (const [u, id] of [['tratamentos', planeado], ['dentes_condicoes', condicao]]) {
+    assert.equal((await pedido('DELETE', `/api/t/${u}/${id}`, { ck: ck.medico })).status, 200, u);
+    assert.ok(D.get('SELECT 1 FROM logs WHERE acao=? AND detalhe=?', `eliminar ${u}`, `id=${id}`), `log ${u}`);
+  }
+  for (const [u, id] of [['tratamentos', realizado], ['proteses', protese]])
+    assert.equal((await pedido('DELETE', `/api/t/${u}/${id}`, { ck: ck.admin })).status, 200, u);
 });
 
 test('JSON inválido → 400 (com e sem sessão, antes de qualquer efeito)', async () => {
@@ -147,7 +163,7 @@ test('JSON profundamente aninhado não derruba o servidor', async () => {
   assert.equal((await pedido('GET', '/api/me', { ck: ck.admin })).status, 200);
 });
 
-test('corpo acima de 5 MB → resposta 413', { todo: 'BUG: readBody faz req.destroy() logo a seguir ao reject: o cliente recebe ECONNRESET em vez de 413' }, async () => {
+test('corpo acima de 5 MB → resposta 413', async () => {
   const r = await pedido('POST', '/api/notas', { ck: ck.admin, corpo: JSON.stringify({ texto: 'x'.repeat(6e6) }) });
   assert.equal(r.status, 413, JSON.stringify(r));
 });

@@ -24,7 +24,7 @@ No primeiro arranque a app cria o utilizador **`admin`** com uma **palavra-passe
 
 Segurança: 5 tentativas falhadas bloqueiam esse posto durante 10 minutos; as sessões expiram ao fim de 12 horas.
 
-Permissões: médicos, receção e assistentes veem toda a ficha clínica (notas, anamnese, ficheiros), por decisão da clínica — a receção precisa dessa informação para falar com o paciente e agendar. Só o administrador apaga registos clínicos, altera a configuração e gere utilizadores.
+Permissões: médicos, receção e assistentes veem toda a ficha clínica (notas, anamnese, ficheiros), por decisão da clínica — a receção precisa dessa informação para falar com o paciente e agendar. Só o administrador apaga tratamentos já realizados e próteses, altera a configuração e gere utilizadores; tratamentos planeados e condições do odontograma podem ser apagados por qualquer perfil (correção do plano no dia a dia), ficando registado no log. Tratamentos faturados não se apagam (nota de crédito).
 
 A base de dados nova começa **vazia** (só com a tabela de tratamentos/preços, estados, feriados, IVA e modelos de mensagem). Para experimentar com dados fictícios, arranque com `DEMO=1 node server.js` numa pasta de dados separada (`DATA_DIR=...`).
 

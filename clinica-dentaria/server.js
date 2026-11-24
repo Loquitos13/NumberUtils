@@ -34,12 +34,20 @@ function send(res, status, body, headers = {}) {
   res.end(data);
 }
 
-function readBody(req) {
+function readBody(req, res, limite = 5e6) {
   return new Promise((resolve, reject) => {
     let size = 0; const chunks = [];
-    req.on('data', c => { size += c.length; if (size > 5e6) { reject(new HttpError(413, 'Pedido demasiado grande')); req.destroy(); } else chunks.push(c); });
+    req.on('data', c => {
+      size += c.length;
+      if (size <= limite) return chunks.push(c);
+      // responde 413 e fecha a ligação; o resto do corpo é descartado (destruir já dava ECONNRESET ao cliente)
+      if (size - c.length <= limite) { chunks.length = 0; res.setHeader('Connection', 'close'); reject(new HttpError(413, 'Pedido demasiado grande')); }
+      if (size > 4 * limite) req.destroy();
+    });
     req.on('end', () => {
       if (!chunks.length) return resolve({});
+      // só JSON: um formulário ou text/plain de outro site não passa (defesa contra CSRF além do SameSite)
+      if (!/^application\/json\b/i.test(req.headers['content-type'] || '')) return reject(new HttpError(415, 'O corpo do pedido tem de ser JSON'));
       try { resolve(JSON.parse(Buffer.concat(chunks).toString('utf8'))); } catch { reject(new HttpError(400, 'JSON inválido')); }
     });
     req.on('error', reject);
@@ -132,6 +140,8 @@ function crud(method, table, id, query, body, user) {
     const soNotas = method === 'PUT' && Object.keys(pick(body, TABLES.tratamentos.cols)).every(k => ['notas', 'marcacao_id'].includes(k));
     if (t && !soNotas) throw new HttpError(409, `Tratamento já faturado (${t.numero}). Para corrigir, emita uma nota de crédito.`);
   }
+  // apagar: tratamentos realizados e próteses só o admin; o plano de tratamentos e o odontograma corrigem-se no dia a dia (fica no log)
+  if (method === 'DELETE' && (table === 'proteses' || (table === 'tratamentos' && get("SELECT 1 FROM tratamentos WHERE id=? AND estado='realizado'", id)))) requireAdmin(user);
   if (table === 'anexos') { const r = ANX.antesCrud(method, id, body, user); if (r) return r; } // normaliza o body antes do pick
   if (method === 'POST') {
     const o = pick(body, def.cols);
@@ -814,26 +824,49 @@ function listagem(tipo, q) {
   throw new HttpError(404, 'Listagem desconhecida');
 }
 
-const falhas = new Map(); // tentativas de login falhadas por endereço
+// tentativas de login falhadas: 'ip:<endereço>' (5 em 10 min → bloqueio) e 'conta:<login>' (atraso progressivo a partir de 3, 15 min de bloqueio aos 10)
+const falhas = new Map();
+const HASH_FALSO = D.hashPassword(crypto.randomBytes(16).toString('hex')); // o scrypt corre também para logins inexistentes (sem enumeração por tempo)
+function bloqueioLogin(ip, conta) {
+  const agoraMs = Date.now(), fi = falhas.get(ip), fc = falhas.get(conta);
+  if (fi && fi.n >= 5 && agoraMs - fi.t < 10 * 60e3) return 'Demasiadas tentativas falhadas. Aguarde 10 minutos.';
+  if (fc && fc.n >= 10 && agoraMs - fc.t < 15 * 60e3) return 'Conta bloqueada temporariamente por tentativas falhadas. Aguarde 15 minutos.';
+  if (fc && fc.n >= 3 && fc.n < 10) { const espera = Math.min(2 ** (fc.n - 3), 30) * 1000 - (agoraMs - fc.t); if (espera > 0) return `Demasiadas tentativas falhadas. Aguarde ${Math.ceil(espera / 1000)} s.`; }
+  return null;
+}
+function registarFalha(k, janela) {
+  const agoraMs = Date.now(), f = falhas.get(k);
+  falhas.set(k, { n: (f && agoraMs - f.t < janela ? f.n : 0) + 1, t: agoraMs });
+  if (falhas.size > 1000) for (const [x, v] of falhas) if (agoraMs - v.t > 15 * 60e3) falhas.delete(x); // as entradas antigas expiram
+}
 
 // ---------- router da API ----------
+const SO_LEITURA = ['me', 'servicos-frequentes', 'lookups', 'agenda', 'bloqueios', 'espera', 'listagens', 'feriados', 'devedores', 'proteses', 'estatisticas', 'aniversarios', 'dashboard', 'logs', 'backup'];
 async function api(req, res, url) {
   const parts = url.pathname.split('/').filter(Boolean).slice(1); // remove 'api'
   const q = url.searchParams;
   const m = req.method;
+  // pedidos que alteram dados vindos de outra origem são recusados (defesa contra CSRF além do SameSite=Strict)
+  if (!['GET', 'HEAD'].includes(m) && req.headers.origin) {
+    let host; try { host = new URL(req.headers.origin).host; } catch { host = null; }
+    if (host !== req.headers.host) throw new HttpError(403, 'Origem do pedido não permitida');
+  }
   const binario = m === 'POST' && parts[0] === 'pacientes' && parts[2] === 'anexos'; // upload: corpo binário, lido em anexos.js
-  const body = ['POST', 'PUT'].includes(m) && !binario ? await readBody(req) : {};
+  const body = ['POST', 'PUT'].includes(m) && !binario ? await readBody(req, res, parts[0] === 'login' ? 64e3 : 5e6) : {};
 
-  if (parts[0] === 'login' && m === 'POST') {
-    const ip = req.socket.remoteAddress || '';
-    const f = falhas.get(ip);
-    if (f && f.n >= 5 && Date.now() - f.t < 10 * 60e3) throw new HttpError(429, 'Demasiadas tentativas falhadas. Aguarde 10 minutos.');
-    const u = get('SELECT * FROM users WHERE login=? AND ativo=1', String(body.login || '').trim());
-    if (!u || !D.checkPassword(String(body.password || ''), u.pass_hash)) {
-      falhas.set(ip, { n: (f && Date.now() - f.t < 10 * 60e3 ? f.n : 0) + 1, t: Date.now() });
-      D.log(null, 'login falhado', String(body.login || '')); throw new HttpError(401, 'Utilizador ou palavra-passe incorretos');
+  if (parts[0] === 'login') {
+    if (m !== 'POST') throw new HttpError(405, 'Método não suportado');
+    const login = String(body.login || '').trim();
+    const ip = 'ip:' + (req.socket.remoteAddress || ''), conta = 'conta:' + login.normalize('NFKC').toLowerCase().slice(0, 100);
+    const bloq = bloqueioLogin(ip, conta);
+    if (bloq) throw new HttpError(429, bloq);
+    const u = get('SELECT * FROM users WHERE login=? AND ativo=1', login);
+    const okPw = D.checkPassword(String(body.password || ''), u ? u.pass_hash : HASH_FALSO);
+    if (!u || !okPw) {
+      registarFalha(ip, 10 * 60e3); registarFalha(conta, 15 * 60e3);
+      D.log(null, 'login falhado', login.slice(0, 100)); throw new HttpError(401, 'Utilizador ou palavra-passe incorretos');
     }
-    falhas.delete(ip);
+    falhas.delete(ip); falhas.delete(conta);
     run("DELETE FROM sessions WHERE criado_em <= datetime('now','localtime','-12 hours')");
     const token = crypto.randomBytes(24).toString('hex');
     run("INSERT INTO sessions VALUES (?,?,datetime('now','localtime'))", token, u.id);
@@ -848,6 +881,8 @@ async function api(req, res, url) {
   const [r0, r1, r2_] = parts;
   if (user.trocar_pw && !['me', 'password', 'logout'].includes(r0)) throw new HttpError(403, 'Tem de mudar a palavra-passe antes de continuar.');
   const id = r1 && /^\d+$/.test(r1) ? Number(r1) : null;
+  if (r0 === 'logout' && m !== 'POST') throw new HttpError(405, 'Método não suportado');
+  if (SO_LEITURA.includes(r0) && m !== 'GET') throw new HttpError(405, 'Método não suportado');
 
   switch (r0) {
     case 'logout': run('DELETE FROM sessions WHERE token=?', parseCookies(req).sid); return { ok: true };
