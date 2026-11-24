@@ -130,9 +130,9 @@ async function enviarSMS(cfg, { para, texto }) {
     if (metodo !== 'GET' && cfg.sms_corpo) {
       // modelo JSON: valores escapados para JSON; senão form-urlencoded: valores codificados (& e = não injetam parâmetros)
       body = sub(cfg.sms_corpo, 'json');
-      try { JSON.parse(body); headers['Content-Type'] = 'application/json'; } catch { body = sub(cfg.sms_corpo, true); headers['Content-Type'] = 'application/x-www-form-urlencoded'; }
+      try { JSON.parse(body); headers['Content-Type'] = 'application/json'; } catch { body = sub(cfg.sms_corpo); headers['Content-Type'] = 'application/x-www-form-urlencoded'; }
     }
-    r = await fetch(sub(cfg.sms_url, true), { method: metodo, headers, body });
+    r = await fetch(sub(cfg.sms_url), { method: metodo, headers, body });
   } else throw new Error('Fornecedor de SMS desconhecido');
   const txt = await r.text();
   if (!r.ok) throw new Error(`SMS recusado (${r.status}): ${txt.slice(0, 200)}`);

@@ -20,10 +20,10 @@ const FLAGS = ['ativo', 'sms_ok', 'email_ok', 'rgpd_consent'];
 const SIM = ['1', 'sim', 's', 'x', 'true'], NAO = ['0', 'não', 'nao', 'n', 'false'];
 const NAO_MAPEAVEIS = ['id', 'criado_em', 'alterado_por', 'alterado_em', 'foto'];
 // colunas com o nome (o export do NoviGest traz nomes, não ids): campo → [coluna id, erro, nomes aceites]
-const POR_NOME = { entidade: ['entidade_id', 'Entidade desconhecida', 'SELECT id, nome FROM entidades'],
-  medico: ['medico_id', 'Médico desconhecido', 'SELECT id, nome, abreviatura FROM medicos'] };
+const POR_NOME = { entidade: ['entidade_id', 'Entidade desconhecida', 'SELECT id, nome FROM entidades ORDER BY ativo DESC, id'],
+  medico: ['medico_id', 'Médico desconhecido', 'SELECT id, nome, abreviatura FROM medicos ORDER BY ativo DESC, id'] };
 const norm = s => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]/g, '');
-// nome normalizado → id; os nomes ganham às abreviaturas, e o primeiro repetido ganha
+// nome normalizado → id; os nomes ganham às abreviaturas; nos repetidos ganha o ativo (e depois o mais antigo)
 function nomesPara(sql) {
   const m = new Map(), rows = D.all(sql);
   for (const k of ['nome', 'abreviatura']) for (const r of rows) if (r[k] && !m.has(norm(r[k]))) m.set(norm(r[k]), r.id);

@@ -27,7 +27,7 @@ A OralSaúde vai deixar o NoviGest. A app já tem a agenda, a ficha, o odontogra
 - O tipo é confirmado pela assinatura (os primeiros bytes) e não pela extensão. O nome guardado é aleatório, nunca o nome que veio do utilizador.
 - Download: `GET /api/anexos/:id/ficheiro`, só com sessão iniciada, com `Content-Type` correto e `Content-Disposition`. Nunca serve caminhos fora de `anexos/`.
 - A lista e a edição dos metadados passam pelo CRUD. O DELETE apaga também o ficheiro do disco.
-- A cópia de segurança passa a avisar que os anexos estão em `data/anexos` e têm de ser copiados à parte. Mudar o backup para incluir os anexos fica para depois.
+- A cópia de segurança é um único ZIP com `clinica.db` e a pasta `anexos/` (feito depois, ver `zip.js`).
 
 ## 3. Anamnese configurável
 **Histórias.** O administrador define as perguntas da anamnese em Configuração → Anamnese: o texto, o tipo (sim/não, texto, escolha), as opções, se a pergunta é um alerta clínico, a ordem e se está ativa. Na ficha, o médico responde a essas perguntas, além dos campos que já existem. As respostas "sim" às perguntas de alerta aparecem na faixa vermelha de alertas da ficha e da consulta. Desativar uma pergunta não apaga as respostas que já foram dadas.
@@ -50,4 +50,3 @@ A OralSaúde vai deixar o NoviGest. A app já tem a agenda, a ficha, o odontogra
 ## Fora de âmbito
 - A faturação certificada pela AT e o SAF-T: continuam a precisar de um fornecedor certificado.
 - Importar do PostgreSQL do NoviGest diretamente: espera-se uma cópia da base de dados.
-- Os anexos dentro da cópia de segurança.

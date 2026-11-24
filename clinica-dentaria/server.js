@@ -551,7 +551,7 @@ function estatisticas(q) {
   const faltas = all(`SELECT COUNT(*) n FROM marcacoes m JOIN estados e ON e.id=m.estado_id WHERE e.categoria='FALTAS' AND m.inicio BETWEEN ? AND ?`, de, ateFim)[0].n;
   const faturado = r2(fatMes.reduce((a, b) => a + b.total, 0));
   const recebido = r2(recebMetodo.reduce((a, b) => a + b.total, 0));
-  const emDivida = q.get('sem_divida') ? undefined : r2(saldosPacientes().reduce((a, p) => a + (p.saldo > 0 ? p.saldo : 0), 0));
+  const emDivida = q.get('sem_divida') === '1' ? undefined : r2(saldosPacientes().reduce((a, p) => a + (p.saldo > 0 ? p.saldo : 0), 0));
   return { de, ate, porEstado, porMedico, fatMedico, fatMes, recebMetodo, topServicos, razoes,
     kpi: { marcacoes: totalMarc, faltas, taxaFaltas: totalMarc ? r2(faltas * 100 / totalMarc) : 0, novos, faturado, recebido, emDivida } };
 }
@@ -637,10 +637,11 @@ async function lembretesAutomaticos() {
 // ---------- backup ----------
 // ZIP com clinica.db (cópia VACUUM INTO) e a pasta anexos/
 async function backup(res) {
-  // dentro de DATA_DIR (não em /tmp, legível por todos); apagada no fim
-  const tmp = path.join(D.DATA_DIR, `.clinica-backup-${Date.now()}.db`);
+  // dentro de DATA_DIR e só legível pelo dono; nome aleatório (dois backups em simultâneo não colidem); apagada no fim
+  const tmp = path.join(D.DATA_DIR, `.clinica-backup-${crypto.randomBytes(6).toString('hex')}.db`);
   try {
     D.db.exec(`VACUUM INTO '${tmp.replace(/'/g, "''")}'`);
+    fs.chmodSync(tmp, 0o600);
     const anx = path.join(D.DATA_DIR, 'anexos');
     const entradas = [{ nome: 'clinica.db', ficheiro: tmp }];
     for (const rel of fs.existsSync(anx) ? fs.readdirSync(anx, { recursive: true }) : []) {
@@ -651,9 +652,10 @@ async function backup(res) {
     const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-');
     res.writeHead(200, { 'Content-Type': 'application/zip', 'Content-Disposition': `attachment; filename="clinica-backup-${stamp}.zip"` });
     await ZIP.escrever(res, entradas);
+    return true;
   } catch (e) {
     if (!res.headersSent) throw e; // ainda dá para responder com o erro normal
-    console.error('backup:', e.message); res.destroy();
+    console.error('backup:', e.message); res.destroy(); return false;
   } finally { fs.rmSync(tmp, { force: true }); }
 }
 
@@ -1149,7 +1151,7 @@ async function api(req, res, url) {
     case 'anexos': if (m === 'GET' && id && r2_ === 'ficheiro') { ANX.servir(res, id); return undefined; } break;
     case 'logs': requireAdmin(user);
       return all('SELECT l.*, u.nome user_nome FROM logs l LEFT JOIN users u ON u.id=l.user_id ORDER BY l.id DESC LIMIT 1000');
-    case 'backup': requireAdmin(user); await backup(res); D.log(user.id, 'backup', ''); return undefined;
+    case 'backup': requireAdmin(user); D.log(user.id, await backup(res) ? 'backup' : 'backup falhou', ''); return undefined;
   }
   throw new HttpError(404, 'Rota não encontrada');
 }

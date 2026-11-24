@@ -75,3 +75,22 @@ test('a cópia de segurança é um ZIP com clinica.db e os anexos', async () => 
     assert.match(execFileSync('unzip', ['-t', z]).toString(), /No errors detected/);
   }
 });
+
+test('um anexo apagado durante a cópia é ignorado e o ZIP continua válido', async () => {
+  const ZIP = require('../zip');
+  const { PassThrough } = require('node:stream');
+  const a = path.join(dir, 'fica.txt'), b = path.join(dir, 'some.txt');
+  fs.writeFileSync(a, 'conteúdo'); fs.writeFileSync(b, 'vai desaparecer');
+  const entradas = [{ nome: 'some.txt', ficheiro: b }, { nome: 'fica.txt', ficheiro: a }];
+  ZIP.verificar(entradas);
+  fs.rmSync(b); // apagado entre a listagem e a escrita
+  const out = new PassThrough(), partes = []; out.on('data', c => partes.push(c));
+  const ouvintes = () => out.listenerCount('error') + out.listenerCount('close');
+  const antes = ouvintes();
+  const r = await ZIP.escrever(out, entradas);
+  assert.equal(r, 1);
+  const e = lerZip(Buffer.concat(partes));
+  assert.deepEqual(Object.keys(e), ['fica.txt']);
+  assert.equal(e['fica.txt'].toString(), 'conteúdo');
+  assert.ok(ouvintes() - antes <= 1, 'sem listeners acumulados por ficheiro');
+});
