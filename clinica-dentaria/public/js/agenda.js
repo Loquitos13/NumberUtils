@@ -1,7 +1,9 @@
 'use strict';
 /* Agenda: vista diária por médico/gabinete, semanal, lista; marcações */
-const AG = { date: isoDate(), mode: 'dia', medicos: null, medicoSemana: null, calMonth: null, feriados: {} };
-const SLOT_H = 22; // px por intervalo
+const AG = { date: isoDate(), mode: 'dia', medicos: null, medicoSemana: null, calMonth: null, feriados: {}, remarcar: null };
+const lsGet = k => { try { return localStorage.getItem(k); } catch { return null; } };
+const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch { /* sem armazenamento: só não se lembra */ } };
+let SLOT_H = lsGet('agenda.compacto') === '1' ? 14 : 22; // px por intervalo (compacto mostra o dia inteiro a 1366×768)
 
 function toMin(hhmm) { const [h, m] = hhmm.split(':').map(Number); return h * 60 + m; }
 function minToHHMM(m) { return `${pad(Math.floor(m / 60))}:${pad(m % 60)}`; }
@@ -42,6 +44,7 @@ route('agenda', async (view, params) => {
         <h1 id="ag-title" style="font-size:1.2rem"></h1>
         <span id="ag-hol" class="badge danger hidden"></span>
         <div class="spacer"></div>
+        <button id="ag-compacto" aria-pressed="${SLOT_H < 22}" title="Linhas mais baixas para ver o dia inteiro">Compacto</button>
         <button id="ag-vagas">Procurar vaga</button>
         <button id="ag-bloq" title="Férias, congressos, ausências">Bloquear</button>
         <button id="ag-sms">Lembretes</button>
@@ -55,7 +58,11 @@ route('agenda', async (view, params) => {
   $('#ag-prev', view).onclick = () => { AG.date = addDays(AG.date, -step); drawAgenda(); };
   $('#ag-next', view).onclick = () => { AG.date = addDays(AG.date, step); drawAgenda(); };
   $('#ag-today', view).onclick = () => { AG.date = isoDate(); drawAgenda(); };
-  $('#ag-vagas', view).onclick = procurarVaga;
+  const bComp = $('#ag-compacto', view);
+  const pintaComp = () => { const on = SLOT_H < 22; bComp.setAttribute('aria-pressed', on); bComp.style.background = on ? 'var(--blue-wash)' : ''; bComp.style.color = on ? 'var(--blue-ink)' : ''; };
+  bComp.onclick = () => { SLOT_H = SLOT_H < 22 ? 22 : 14; lsSet('agenda.compacto', SLOT_H < 22 ? '1' : '0'); pintaComp(); drawAgenda(); };
+  pintaComp();
+  $('#ag-vagas', view).onclick = () => procurarVaga();
   $('#ag-bloq', view).onclick = () => editBloqueio(null, { date: AG.date, medico_id: AG.mode === 'semana' ? AG.medicoSemana : null });
   $('#ag-esp', view).onclick = listaEspera;
   $('#ag-esp-add', view).onclick = () => editEspera(null);
@@ -141,14 +148,14 @@ async function drawAgenda() {
   if (AG.mode === 'lista') {
     const rows = marc.filter(m => AG.medicos.has(m.medico_id));
     body.innerHTML = `<div class="card">${table(rows, [
-      { h: 'Hora', f: m => `<b>${fmtTime(m.inicio)}</b>–${fmtTime(m.fim)}` },
-      { h: 'Paciente', f: m => `${esc(m.paciente_nome)} <span class="muted small">n.º ${esc(m.paciente_numero)}</span>` },
-      { h: 'Contacto', f: m => esc(m.paciente_telemovel) },
-      { h: 'Médico', f: m => `<span class="dot" style="background:${esc(m.medico_cor)}"></span>${esc(m.medico_nome)}` },
-      { h: 'Gabinete', f: m => esc(m.gabinete_nome) },
+      { h: 'Hora', cls: 'nowrap', f: m => `<b>${fmtTime(m.inicio)}</b>–${fmtTime(m.fim)}` },
+      { h: 'Paciente', f: m => `${esc(m.paciente_nome)} <span class="muted small nowrap">n.º ${esc(m.paciente_numero)}</span>` },
+      { h: 'Contacto', cls: 'nowrap', f: m => esc(m.paciente_telemovel) },
+      { h: 'Médico', cls: 'nowrap', f: m => `<span class="dot" style="background:${esc(m.medico_cor)}"></span>${esc(m.medico_nome)}` },
+      { h: 'Gabinete', cls: 'nowrap', f: m => esc(m.gabinete_nome) },
       { h: 'Serviço', f: m => esc(m.servico_nome) },
-      { h: 'Estado', f: m => `<span class="badge" style="background:${esc(m.estado_cor)}22;color:${esc(m.estado_cor)}">${esc(m.estado_nome)}</span>` },
-      { h: '', cls: 'right', f: m => estadoRapido(m) },
+      { h: 'Estado', cls: 'nowrap', f: estadoBadge },
+      { h: '', cls: 'right nowrap', f: m => estadoRapido(m) },
     ], { onClick: m => openMarcacao({ id: m.id }), empty: 'Sem marcações neste dia' })}</div>
     ${bloqs.length ? `<div class="card"><h3>Bloqueios / ausências</h3>${bloqs.map(b => `<div class="row" style="padding:4px 0"><span class="badge danger">${esc(b.tipo_nome)}</span> ${esc(b.medico_nome || 'Todos os médicos')} · ${fmtDT(b.inicio)} → ${fmtDT(b.fim)} ${esc(b.motivo || '')}<button class="ghost sm icon" data-bl="${b.id}" aria-label="Editar" title="Editar"><i data-ic="edit"></i></button></div>`).join('')}</div>` : ''}`;
     $$('[data-bl]', body).forEach(x => x.onclick = () => editBloqueio(byId(bloqs, x.dataset.bl)));
@@ -160,7 +167,20 @@ async function drawAgenda() {
   const nSlots = Math.ceil((t1 - t0) / step);
   const H = nSlots * SLOT_H;
   const pxMin = SLOT_H / step;
-  let h = `<div class="cal" style="grid-template-columns:56px repeat(${cols.length}, minmax(150px,1fr))">
+  // eventos com sobreposição lado a lado: cada faixa tem ≥110px (a coluna alarga e a grelha rola na horizontal)
+  for (const c of cols) {
+    c.evs = marc.filter(c.filter).sort((a, b) => a.inicio.localeCompare(b.inicio));
+    const lanes = [];
+    for (const e of c.evs) {
+      let lane = lanes.findIndex(end => end <= e.inicio);
+      if (lane < 0) { lane = lanes.length; lanes.push(e.fim); } else lanes[lane] = e.fim;
+      e._lane = lane;
+    }
+    c.nLanes = lanes.length;
+  }
+  const rm = AG.remarcar;
+  let h = (rm ? `<div class="alert info row between" role="status" style="margin-bottom:8px"><span>A remarcar <b>${esc(rm.paciente_nome)}</b> (${fmtDT(rm.inicio)}) — clique numa hora livre, ou escolha-a com Tab e Enter. Esc cancela.</span><button class="sm" data-rm-x>Cancelar remarcação</button></div>` : '') +
+    `<div class="cal" style="grid-template-columns:56px ${cols.map(c => `minmax(${Math.max(AG.mode === 'semana' ? 110 : 150, c.nLanes * 110)}px,1fr)`).join(' ')}">
     <div class="colh corner"></div>${cols.map(c => `<div class="colh" title="${esc(c.title)}">${c.color ? `<span class="dot" style="background:${esc(c.color)}"></span>` : ''}${esc(c.title)}</div>`).join('')}
     <div class="times" style="height:${H}px">`;
   for (let i = 0; i < nSlots; i++) {
@@ -174,16 +194,9 @@ async function drawAgenda() {
     h += `<div class="col ${closed ? 'closed' : ''}" data-col="${esc(c.key)}" style="height:${H}px">`;
     for (let i = 0; i < nSlots; i++) {
       const t = t0 + i * step;
-      h += `<div class="slot ${(t + step) % 60 === 0 ? 'hour' : ''}" style="height:${SLOT_H}px" data-t="${minToHHMM(t)}"></div>`;
+      h += `<div class="slot ${(t + step) % 60 === 0 ? 'hour' : ''}" style="height:${SLOT_H}px" data-t="${minToHHMM(t)}" tabindex="0" role="button" aria-label="${esc(`${c.title}, ${minToHHMM(t)}`)}"></div>`;
     }
-    // eventos com sobreposição lado a lado
-    const evs = marc.filter(c.filter).sort((a, b) => a.inicio.localeCompare(b.inicio));
-    const lanes = [];
-    for (const e of evs) {
-      let lane = lanes.findIndex(end => end <= e.inicio);
-      if (lane < 0) { lane = lanes.length; lanes.push(e.fim); } else lanes[lane] = e.fim;
-      e._lane = lane;
-    }
+    const evs = c.evs;
     for (const e of evs) {
       const s = toMin(fmtTime(e.inicio)), f = toMin(fmtTime(e.fim));
       const top = (s - t0) * pxMin, hh = Math.max((f - s) * pxMin - 2, 16);
@@ -191,9 +204,11 @@ async function drawAgenda() {
       const w = 100 / nL;
       const inact = ['INATIVAS', 'FALTAS'].includes(e.estado_categoria);
       const sub = AG.mode === 'gabinetes' ? e.medico_nome : (e.servico_nome || '');
-      h += `<div class="ev ${inact ? 'inact' : ''}" data-id="${e.id}" style="top:${top}px;height:${hh}px;left:calc(${e._lane * w}% + 3px);width:calc(${w}% - 6px);right:auto;--st:${esc(e.estado_cor)}"
+      const estreito = nL >= 3; // faixa estreita: o nome vai primeiro, a hora passa para a 2.ª linha
+      h += `<div class="ev ${inact ? 'inact' : ''}" data-id="${e.id}" tabindex="0" role="button" aria-label="${esc(`${fmtTime(e.inicio)}–${fmtTime(e.fim)} ${e.paciente_nome}, ${e.estado_nome}`)}"
+        style="top:${top}px;height:${hh}px;left:calc(${e._lane * w}% + 3px);width:calc(${w}% - 6px);right:auto;--st:${esc(e.estado_cor)};${rm ? 'pointer-events:none;opacity:.55;' : ''}"
         title="${esc(`${fmtTime(e.inicio)}-${fmtTime(e.fim)} ${e.paciente_nome}\n${e.servico_nome || ''}\n${e.estado_nome}${e.notas ? '\n' + e.notas : ''}`)}">
-        <div class="h"><span class="dot"></span><span class="num">${fmtTime(e.inicio)}</span> ${esc(e.paciente_nome)}</div><div class="small">${esc(sub)}${e.notas ? ' · notas' : ''}${e.primeira ? ' · 1.ª consulta' : ''}</div></div>`;
+        <div class="h"><span class="dot"></span>${estreito ? '' : `<span class="num">${fmtTime(e.inicio)}</span> `}${esc(e.paciente_nome)}</div><div class="small">${estreito ? `<span class="num">${fmtTime(e.inicio)}</span> ` : ''}${esc(sub)}${e.notas ? ' · notas' : ''}${e.primeira ? ' · 1.ª consulta' : ''}</div></div>`;
     }
     // bloqueios (férias, congressos, ausências)
     if (AG.mode !== 'gabinetes') for (const b of bloqs.filter(b => !b.medico_id || b.medico_id === c.medico_id)) {
@@ -208,24 +223,100 @@ async function drawAgenda() {
   body.innerHTML = h + '</div>';
 
   const colMap = Object.fromEntries(cols.map(c => [c.key, c]));
-  $$('.col', body).forEach(colEl => colEl.addEventListener('click', e => {
-    const blk = e.target.closest('.blk');
-    if (blk) return editBloqueio(byId(bloqs, blk.dataset.bl));
-    const ev = e.target.closest('.ev');
-    if (ev) return openMarcacao({ id: Number(ev.dataset.id) });
-    const slot = e.target.closest('.slot'); if (!slot) return;
-    const c = colMap[colEl.dataset.col];
-    openMarcacao({ date: c.date, hora: slot.dataset.t, medico_id: c.medico_id, gabinete_id: c.gabinete_id });
-  }));
-  // rola até à hora atual
   const cal = $('.cal', body);
-  if (AG.date === isoDate() && cal) cal.scrollTop = Math.max(0, (nowMin - t0) * pxMin - 120);
+  const ativar = el => {
+    const blk = el.closest('.blk');
+    if (blk) return editBloqueio(byId(bloqs, blk.dataset.bl));
+    const ev = el.closest('.ev');
+    if (ev) return AG.remarcar ? null : openMarcacao({ id: Number(ev.dataset.id) });
+    const slot = el.closest('.slot'); if (!slot) return;
+    const c = colMap[slot.closest('.col').dataset.col];
+    if (AG.remarcar) return moverMarcacao(AG.remarcar, c, slot.dataset.t);
+    openMarcacao({ date: c.date, hora: slot.dataset.t, medico_id: c.medico_id, gabinete_id: c.gabinete_id });
+  };
+  let arrastou = false, drag = null;
+  cal.addEventListener('click', e => { if (!arrastou) ativar(e.target); });
+  cal.addEventListener('keydown', e => {
+    if ((e.key === 'Enter' || e.key === ' ') && e.target.matches('.ev, .slot')) { e.preventDefault(); ativar(e.target); }
+  });
+  // arrastar uma marcação para outra hora/coluna (rato/caneta; no tablet usa-se "Remarcar" no modal)
+  const pinta = (d, slot) => { if (d.alvo === slot) return; d.alvo?.style.removeProperty('background'); d.alvo = slot; if (slot) slot.style.background = 'var(--blue-wash)'; };
+  const fimDrag = () => { const d = drag, alvo = d?.alvo; drag = null; if (d?.on) { d.ev.style.opacity = ''; d.ev.style.cursor = ''; pinta(d, null); } return d && { ...d, alvo }; };
+  cal.addEventListener('pointerdown', e => {
+    const ev = e.target.closest('.ev');
+    if (ev && e.button === 0 && e.pointerType !== 'touch' && !AG.remarcar) drag = { ev, x: e.clientX, y: e.clientY, id: e.pointerId };
+  });
+  cal.addEventListener('pointermove', e => {
+    if (!drag) return;
+    if (!drag.on) {
+      if (Math.hypot(e.clientX - drag.x, e.clientY - drag.y) < 6) return;
+      drag.on = true; drag.ev.setPointerCapture(drag.id); drag.ev.style.opacity = '.5'; drag.ev.style.cursor = 'grabbing';
+    }
+    document.getSelection()?.removeAllRanges();
+    pinta(drag, document.elementsFromPoint(e.clientX, e.clientY).find(x => x.classList.contains('slot') && cal.contains(x)) || null);
+  });
+  cal.addEventListener('pointerup', () => {
+    const d = fimDrag(); if (!d?.on) return;
+    arrastou = true; setTimeout(() => { arrastou = false; });
+    if (d.alvo) moverMarcacao(byId(marc, d.ev.dataset.id), colMap[d.alvo.closest('.col').dataset.col], d.alvo.dataset.t);
+  });
+  cal.addEventListener('pointercancel', fimDrag);
+  if (rm) {
+    $('[data-rm-x]', body).onclick = () => { AG.remarcar = null; drawAgenda(); };
+    const c = cols.find(c => c.filter(rm)) || cols[0];
+    ($(`[data-col="${c.key}"] .slot[data-t="${fmtTime(rm.inicio)}"]`, cal) || $('.slot', cal))?.focus();
+  } else if (AG.date === isoDate()) cal.scrollTop = Math.max(0, (nowMin - t0) * pxMin - 120); // rola até à hora atual
+}
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && AG.remarcar && !$('.modal-bg')) { AG.remarcar = null; if (App.current === 'agenda') drawAgenda(); }
+});
+
+// remarca (arrastar ou modo "Remarcar") para a coluna c às hh:mm, com confirmação e o mesmo fluxo de conflitos do modal
+async function moverMarcacao(m, c, hora) {
+  const dur = toMin(fmtTime(m.fim)) - toMin(fmtTime(m.inicio)), fim = toMin(hora) + dur;
+  if (fim >= 1440) return toast('A marcação não pode passar da meia-noite', true);
+  const p = { inicio: `${c.date}T${hora}`, fim: `${c.date}T${minToHHMM(fim)}` };
+  if (c.medico_id && c.medico_id !== m.medico_id) p.medico_id = c.medico_id;
+  if (c.gabinete_id && c.gabinete_id !== m.gabinete_id) p.gabinete_id = c.gabinete_id;
+  if (p.inicio === m.inicio.slice(0, 16) && !p.medico_id && !p.gabinete_id) return;
+  const com = [p.medico_id && byId(L().medicos, p.medico_id)?.nome, p.gabinete_id && byId(L().gabinetes, p.gabinete_id)?.nome].filter(Boolean).join(', ');
+  if (!await confirmDlg(`Remarcar ${m.paciente_nome} de ${fmtDT(m.inicio)} para ${fmtDT(p.inicio)}${com ? ` (${com})` : ''}?`, 'Remarcar')) return;
+  AG.remarcar = null;
+  try {
+    const g = await gravarComConflito(forcar => PUT('marcacoes/' + m.id, { ...p, forcar }),
+      { id: m.id, medico_id: p.medico_id || m.medico_id, paciente: { id: m.paciente_id, nome: m.paciente_nome }, duracao: dur });
+    if (g) toast('Marcação remarcada');
+  } catch (e) { toast(e.message, true); }
+  refreshCurrent();
 }
 
+// grava; num conflito (409) pergunta — Cancelar é o botão principal e fica com o foco; forçar fica à parte, como perigo
+async function gravarComConflito(save, vaga, antesVaga) {
+  try { return await save(false); }
+  catch (err) {
+    if (err.status !== 409) throw err;
+    const r = await new Promise(res => modal({ title: 'Conflito na agenda', size: 'sm', body: `<p>${esc(err.message)}</p>`, buttons: [
+      { label: 'Gravar mesmo assim', cls: 'danger', left: true, onClick: () => res('forcar') },
+      { label: 'Procurar vaga', onClick: () => res('vaga') },
+      { label: 'Cancelar', cls: 'primary', onClick: () => res(null) }],
+    onOpen: c => {
+      setTimeout(() => $('footer button.primary', c.el).focus(), 40);
+      const mo = new MutationObserver(() => { if (!c.el.isConnected) { mo.disconnect(); res(null); } }); // fechado com Esc/×
+      mo.observe(document.body, { childList: true });
+    } }));
+    if (r === 'forcar') return save(true);
+    if (r === 'vaga') { antesVaga?.(); procurarVaga(vaga); }
+    return null;
+  }
+}
+
+const estadoBadge = m => `<span class="badge est" style="--st:${esc(m.estado_cor)}">${esc(m.estado_nome)}</span>`;
 function estadoRapido(m) {
   const pres = L().estados.find(e => e.nome === 'Presente'), falt = L().estados.find(e => e.categoria === 'FALTAS');
-  return `<span class="nowrap"><a class="btn sm" href="#/consulta/${m.id}">Consulta</a> ${pres ? `<button class="sm" data-est="${pres.id}" data-mid="${m.id}" title="Marcar presente">Presente</button>` : ''}
-    ${falt ? `<button class="sm" data-est="${falt.id}" data-mid="${m.id}" title="Marcar falta">Faltou</button>` : ''}</span>`;
+  // Presente/Faltou só enquanto a marcação está por acontecer (não depois de presente, em consulta, concluída, faltou ou desmarcada)
+  const porVir = m.estado_categoria === 'OUTRAS' && m.estado_id !== pres?.id && m.estado_nome !== 'Em consulta';
+  return `<span class="nowrap"><a class="btn sm" href="#/consulta/${m.id}">Consulta</a> ${porVir && pres ? `<button class="sm" data-est="${pres.id}" data-mid="${m.id}" title="Marcar presente">Presente</button>` : ''}
+    ${porVir && falt ? `<button class="sm" data-est="${falt.id}" data-mid="${m.id}" title="Marcar falta">Faltou</button>` : ''}</span>`;
 }
 function bindEstadoRapido(root, after = drawAgenda) {
   $$('[data-est]', root).forEach(b => b.onclick = async () => {
@@ -239,13 +330,15 @@ async function openMarcacao({ id, date, hora, medico_id, gabinete_id, paciente, 
   const lk = L(); const cfg = lk.config;
   let m = id ? await GET('marcacoes/' + id) : null;
   const durDefault = duracao || byId(lk.servicos, servico_id)?.duracao_min || 30;
-  const ini = m ? m.inicio : `${date || AG.date || isoDate()}T${hora || '09:00'}`;
+  // com id + data/hora (vaga escolhida para uma marcação existente): abre-a já com o novo horário/médico
+  const ini = m && !date ? m.inicio : `${date || AG.date || isoDate()}T${hora || '09:00'}`;
   const dur = m ? toMin(fmtTime(m.fim)) - toMin(fmtTime(m.inicio)) + (m.fim.slice(0, 10) !== m.inicio.slice(0, 10) ? 1440 : 0) : durDefault;
-  const medId = m ? m.medico_id : (medico_id || App.user.medico_id || ativos(lk.medicos)[0]?.id);
+  const medId = (m && !date ? m.medico_id : medico_id) || m?.medico_id || App.user.medico_id || ativos(lk.medicos)[0]?.id;
   const estados = ativos(lk.estados);
   const body = `<form class="form-grid" onsubmit="return false">
     <div class="s3">${pacField('paciente_id', m?.paciente_id ?? paciente?.id, m?.paciente_nome ?? paciente?.nome)}</div>
     <div class="field"><label class="f">&nbsp;</label><button type="button" id="mk-newpac" style="width:100%">Novo paciente</button></div>
+    <div class="s4" id="mk-alert" hidden></div>
     ${fld('Médico', sel('medico_id', opts(lk.medicos, medId, { only: x => x.ativo })), 's2')}
     ${fld('Gabinete', sel('gabinete_id', opts(lk.gabinetes, m?.gabinete_id ?? gabinete_id, { empty: '—', only: x => x.ativo })), 's2')}
     ${fld('Serviço / motivo', sel('servico_id', opts(lk.servicos, m?.servico_id ?? servico_id, { empty: '—', only: x => x.ativo, label: s => `${s.codigo ? s.codigo + ' · ' : ''}${s.nome} (${s.duracao_min} min)` })), 's4')}
@@ -265,6 +358,12 @@ async function openMarcacao({ id, date, hora, medico_id, gabinete_id, paciente, 
   if (m) buttons.push({ label: 'Abrir consulta', onClick: () => go('#/consulta/' + m.id) });
   if (m) buttons.push({ label: 'Ficha', onClick: () => go('#/paciente/' + m.paciente_id) });
   if (m) buttons.push({ label: 'Avisar paciente', onClick: async () => { await smsMarcacoes([m.id], `Avisar ${m.paciente_nome}`, 'Confirmação de marcação'); return false; } });
+  if (m) buttons.push({ label: 'Remarcar', onClick: () => { // escolher a nova hora diretamente na grelha (teclado/tablet)
+    AG.remarcar = m; AG.date = m.inicio.slice(0, 10);
+    if (AG.mode === 'lista') AG.mode = 'dia';
+    if (AG.mode === 'semana') AG.medicoSemana = m.medico_id; else AG.medicos?.add(m.medico_id);
+    go('#/agenda/' + AG.date);
+  } });
   buttons.push({ label: 'Cancelar' });
   buttons.push({ label: 'Guardar', cls: 'primary', onClick: async c => {
     const f = readForm($('form', c.body));
@@ -275,23 +374,21 @@ async function openMarcacao({ id, date, hora, medico_id, gabinete_id, paciente, 
       servico_id: f.servico_id ? Number(f.servico_id) : null, estado_id: Number(f.estado_id), notas: f.notas, primeira: f.primeira,
       inicio: `${f.data}T${f.hora}`, fim: `${f.data}T${minToHHMM(e)}` };
     const save = forcar => m ? PUT('marcacoes/' + m.id, { ...payload, forcar }) : POST('marcacoes', { ...payload, forcar });
-    let gravada;
-    try { gravada = await save(false); }
-    catch (err) {
-      if (err.status !== 409) throw err;
-      if (!await confirmDlg(err.message + ' Pretende gravar mesmo assim?', 'Gravar mesmo assim')) return false;
-      gravada = await save(true);
-    }
+    const gravada = await gravarComConflito(save, { id: m?.id, medico_id: payload.medico_id, duracao: e - s, servico_id: payload.servico_id, notas: f.notas,
+      paciente: { id: payload.paciente_id, nome: $('[data-pac]', c.body).value } }, c.close);
+    if (!gravada) return false;
     toast('Marcação guardada');
     if (onSaved) await onSaved(gravada); else refreshCurrent();
   } });
   modal({ title: m ? `Marcação — ${m.paciente_nome}` : 'Nova marcação', size: 'lg', body, buttons, onOpen: c => {
     const form = $('form', c.body);
     const info = async pid => {
-      if (!pid) { $('#mk-info', c.body).textContent = ''; return; }
+      const alEl = $('#mk-alert', c.body);
+      if (!pid) { $('#mk-info', c.body).textContent = ''; alEl.hidden = true; return; }
       const p = await GET(`pacientes/${pid}/resumo`);
-      const al = [p.anamnese.alergias && `Alergias: ${p.anamnese.alergias}`, p.saldo.saldo > 0 && `Saldo em dívida: ${eur(p.saldo.saldo)}`,
-        p.telemovel && `Tel.: ${p.telemovel}`, p.ultima && `Última: ${fmtDT(p.ultima.inicio)} (${p.ultima.estado_nome})`].filter(Boolean);
+      alEl.innerHTML = alertasHtml({ ...p, alertas_extra: [...(p.alertas_extra || []), p.saldo.saldo > 0 && `Saldo em dívida: ${eur(p.saldo.saldo)}`] });
+      alEl.hidden = !alEl.innerHTML; $('.alert', alEl)?.style.setProperty('margin', '0');
+      const al = [p.telemovel && `Tel.: ${p.telemovel}`, p.ultima && `Última: ${fmtDT(p.ultima.inicio)} (${p.ultima.estado_nome})`].filter(Boolean);
       $('#mk-info', c.body).innerHTML = al.map(esc).join(' · ');
     };
     bindPacField(form, 'paciente_id', p => info(p.id));
@@ -325,7 +422,8 @@ function procurarVaga(preset = {}) {
     $('#vg-res', c.body).innerHTML = r.length ? `<p class="muted small">Clique numa vaga para marcar.</p>${table(r, [
       { h: 'Dia', f: v => `${DIAS[new Date(v.inicio).getDay()]}, ${fmtDate(v.inicio)}` }, { h: 'Hora', f: v => `<b>${fmtTime(v.inicio)}</b> – ${fmtTime(v.fim)}` },
       { h: 'Médico(s)', f: v => v.medicos.map(id => esc(byId(lk.medicos, id)?.nome)).join(' + ') }], { onClick: v => {
-        c.close(); openMarcacao({ date: v.inicio.slice(0, 10), hora: fmtTime(v.inicio), medico_id: Number(f.medico_id), duracao: Number(f.duracao), paciente: preset.paciente });
+        c.close(); openMarcacao({ id: preset.id, date: v.inicio.slice(0, 10), hora: fmtTime(v.inicio), medico_id: Number(f.medico_id), duracao: Number(f.duracao),
+          paciente: preset.paciente, servico_id: preset.servico_id, notas: preset.notas });
       } })}` : '<div class="empty">Sem vagas com estes critérios nos próximos 4 meses</div>';
     return false;
   } }] });
@@ -337,7 +435,10 @@ function editBloqueio(b, { date, medico_id } = {}) {
   b = b || { tipo: 'ferias', medico_id, inicio: `${date || isoDate()}T00:00`, fim: `${date || isoDate()}T23:59` };
   const tipos = Object.entries(lk.tipos_bloqueio);
   const buttons = [];
-  if (!isNew) buttons.push({ label: 'Remover', cls: 'danger', left: true, onClick: async () => { await DEL('t/bloqueios/' + b.id); toast('Bloqueio removido'); refreshCurrent(); } });
+  if (!isNew) buttons.push({ label: 'Remover', cls: 'danger', left: true, onClick: async () => {
+    if (!await confirmDlg(`Remover este bloqueio (${lk.tipos_bloqueio[b.tipo] || b.tipo}, ${fmtDT(b.inicio)} → ${fmtDT(b.fim)})? A agenda volta a ficar livre nesse período.`, 'Remover', true)) return false;
+    await DEL('t/bloqueios/' + b.id); toast('Bloqueio removido'); refreshCurrent();
+  } });
   buttons.push({ label: 'Cancelar' }, { label: 'Guardar', cls: 'primary', onClick: async c => {
     const f = readForm($('form', c.body));
     const inicio = `${f.d1}T${f.dia_todo ? '00:00' : f.h1}`, fim = `${f.d2}T${f.dia_todo ? '23:59' : f.h2}`;
@@ -376,8 +477,8 @@ async function listaEspera() {
   const pac = r => ({ id: r.paciente_id, nome: r.paciente_nome });
   $$('[data-mk]', m.body).forEach(b => b.onclick = async () => {
     const r = byId(rows, b.dataset.mk);
-    await PUT('t/lista_espera/' + r.id, { estado: 'marcado' }); m.close();
-    openMarcacao({ paciente: pac(r), medico_id: r.medico_id, servico_id: r.servico_id });
+    m.close(); // só sai da lista de espera quando a marcação fica gravada
+    openMarcacao({ paciente: pac(r), medico_id: r.medico_id, servico_id: r.servico_id, onSaved: async () => { await PUT('t/lista_espera/' + r.id, { estado: 'marcado' }); refreshCurrent(); } });
   });
   $$('[data-vg]', m.body).forEach(b => b.onclick = () => { const r = byId(rows, b.dataset.vg); m.close(); procurarVaga({ medico_id: r.medico_id, paciente: pac(r) }); });
   $$('[data-ed]', m.body).forEach(b => b.onclick = () => { m.close(); editEspera(byId(rows, b.dataset.ed)); });

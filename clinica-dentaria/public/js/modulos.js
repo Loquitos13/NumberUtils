@@ -18,10 +18,10 @@ route('inicio', async (view) => {
     <div class="grid" style="grid-template-columns:minmax(0,2fr) minmax(0,1fr)">
       <div class="card"><div class="row between"><h2>${App.user.perfil === 'medico' ? 'As minhas consultas de hoje' : 'Consultas de hoje'}</h2><a href="#/agenda">Abrir agenda</a></div>
         ${table(meus, [
-          { h: 'Hora', f: m => `<b>${fmtTime(m.inicio)}</b>` }, { h: 'Paciente', f: m => `<a href="#/paciente/${m.paciente_id}">${esc(m.paciente_nome)}</a>` },
-          { h: 'Médico', f: m => `<span class="dot" style="background:${esc(m.medico_cor)}"></span>${esc(m.medico_nome)}` }, { h: 'Serviço', f: m => esc(m.servico_nome) },
-          { h: 'Estado', f: m => `<span class="badge" style="background:${esc(m.estado_cor)}22;color:${esc(m.estado_cor)}">${esc(m.estado_nome)}</span>` },
-          { h: '', cls: 'right', f: m => estadoRapido(m) }], { onClick: m => openMarcacao({ id: m.id }), empty: 'Sem marcações para hoje' })}</div>
+          { h: 'Hora', cls: 'nowrap', f: m => `<b>${fmtTime(m.inicio)}</b>` }, { h: 'Paciente', f: m => `<a href="#/paciente/${m.paciente_id}">${esc(m.paciente_nome)}</a>` },
+          { h: 'Médico', cls: 'nowrap', f: m => `<span class="dot" style="background:${esc(m.medico_cor)}"></span>${esc(m.medico_nome)}` }, { h: 'Serviço', f: m => esc(m.servico_nome) },
+          { h: 'Estado', cls: 'nowrap', f: estadoBadge },
+          { h: '', cls: 'right nowrap', f: m => estadoRapido(m) }], { onClick: m => openMarcacao({ id: m.id }), empty: 'Sem marcações para hoje' })}</div>
       <div>
         <div class="card"><h3>Aniversários hoje</h3>${d.aniversarios.map(p => `<div><a href="#/paciente/${p.id}">${esc(p.nome)}</a> <span class="muted small">(${idade(p.data_nasc)} anos)</span></div>`).join('') || '<div class="muted">Nenhum</div>'}
           <div style="margin-top:8px"><a href="#/comunicacao/aniversarios">Ver aniversários</a></div></div>
