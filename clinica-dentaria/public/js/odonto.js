@@ -184,7 +184,7 @@ route('consulta', async (view, [id]) => {
       </div>
       ${alertasHtml(p)}
     </div>
-    <div class="consulta-body consulta-grid">
+    <div class="consulta-grid">
       <div class="consulta-main" id="cs-odonto"></div>
       <div class="consulta-side">
         <section class="card" id="cs-resumo"></section>
