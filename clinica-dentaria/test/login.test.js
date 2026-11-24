@@ -41,7 +41,7 @@ before(async () => {
     assert.equal((await pedido('POST', '/api/password', { ck: c, corpo: { atual: 'provisoria1', nova: 'palavra-boa-1' } })).status, 200);
   };
   await novo('maria', 'rececao'); await novo('joao', 'medico'); await novo('inativo', 'assistente');
-  for (const l of ['rita', 'alvo', 'alvo2', 'alvo3', ...Array.from({ length: 9 }, (_, i) => 't' + i)]) await novo(l, 'rececao');
+  for (const l of ['rita', 'alvo', 'alvo2', 'alvo3', 'alvo4', ...Array.from({ length: 9 }, (_, i) => 't' + i)]) await novo(l, 'rececao');
   await pedido('DELETE', `/api/users/${D.get("SELECT id FROM users WHERE login='inativo'").id}`, { ck: ckAdmin });
 });
 after(() => { server.close(); fs.rmSync(dir, { recursive: true, force: true }); });
@@ -70,7 +70,7 @@ test('variantes do login não autenticam nem contam como outra conta', async () 
   assert.equal((await entrar('joao', { $gt: '' }, { ip })).status, 401, 'objeto na palavra-passe');
 });
 
-test('ataque distribuído: muitas falhas na mesma conta a partir de IPs diferentes bloqueiam a conta', async () => {
+test('ataque distribuído: muitas falhas na mesma conta a partir de IPs diferentes atrasam a conta', async () => {
   for (let i = 0; i < 40; i++) await entrar('alvo', 'tentativa' + i, { ip: novoIp() });
   assert.equal((await entrar('alvo', 'tentativa-41', { ip: novoIp() })).status, 429);
 });
@@ -84,14 +84,24 @@ test('por conta: atraso progressivo depois de 3 falhas (maiúsculas/unicode cont
   for (let i = 0; i < 3; i++) assert.equal((await entrar('alvo2', 'errada', { ip: novoIp() })).status, 401, 'contador recomeça');
 });
 
-test('por conta: 10 falhas espaçadas → conta bloqueada 15 min, mesmo com a palavra-passe certa e noutro IP', async t => {
+test('conta+IP: 10 falhas espaçadas no mesmo posto → esse posto fica 15 min bloqueado; outro posto entra com a palavra-passe certa', async t => {
   mock.timers.enable({ apis: ['Date'], now: Date.now() }); t.after(() => mock.timers.reset());
-  for (let i = 0; i < 10; i++) { assert.equal((await entrar('alvo3', 'errada', { ip: novoIp() })).status, 401, String(i)); mock.timers.tick(31e3); }
-  assert.equal((await entrar('alvo3', 'palavra-boa-1', { ip: novoIp() })).status, 429);
-  mock.timers.tick(10 * 60e3);
-  assert.equal((await entrar('alvo3', 'palavra-boa-1', { ip: novoIp() })).status, 429);
-  mock.timers.tick(5 * 60e3);
-  assert.equal((await entrar('alvo3', 'palavra-boa-1', { ip: novoIp() })).status, 200);
+  const a = novoIp(), b = novoIp();
+  for (let i = 0; i < 10; i++) { assert.equal((await entrar('alvo3', 'errada', { ip: a })).status, 401, String(i)); mock.timers.tick(11 * 60e3); } // espaçadas: o bloqueio por IP (5 em 10 min) não chega a atuar
+  assert.equal((await entrar('alvo3', 'palavra-boa-1', { ip: a })).status, 429);
+  assert.equal((await entrar('alvo3', 'palavra-boa-1', { ip: b })).status, 200); // um colega não bloqueia a conta a partir de outro PC
+  assert.equal((await entrar('alvo3', 'palavra-boa-1', { ip: a })).status, 429); // o sucesso noutro posto não desbloqueia este
+  assert.equal((await entrar('maria', 'palavra-boa-1', { ip: a })).status, 200); // o bloqueio é só desta conta neste posto
+  mock.timers.tick(15 * 60e3);
+  assert.equal((await entrar('alvo3', 'palavra-boa-1', { ip: a })).status, 200);
+});
+
+test('por conta (qualquer IP): o atraso progressivo não passa de 5 s', async t => {
+  mock.timers.enable({ apis: ['Date'], now: Date.now() }); t.after(() => mock.timers.reset());
+  for (let i = 0; i < 12; i++) { assert.equal((await entrar('alvo4', 'errada', { ip: novoIp() })).status, 401, String(i)); mock.timers.tick(i < 11 ? 31e3 : 0); }
+  assert.equal((await entrar('alvo4', 'palavra-boa-1', { ip: novoIp() })).status, 429);
+  mock.timers.tick(5100);
+  assert.equal((await entrar('alvo4', 'palavra-boa-1', { ip: novoIp() })).status, 200);
 });
 
 test('mensagens de erro idênticas: utilizador inexistente, palavra-passe errada e utilizador inativo', async () => {

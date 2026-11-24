@@ -159,9 +159,9 @@ async function main() {
   const m0 = rss(); const nIps = 5000; const logs0 = fs.statSync(path.join(dir, 'clinica.db')).size;
   const falh = [];
   for (let i = 0; i < nIps; i += 50) falh.push(...await Promise.all(Array.from({ length: 50 }, (_, k) => pedido('POST', 'login', { ip: `127.1.${(i + k) >> 8}.${((i + k) & 255) || 1}`, corpo: { login: 'nao-existe-' + 'x'.repeat(2000), password: 'x' } }))));
-  // o mesmo login vindo de muitos IPs fica bloqueado por conta (429) — é o comportamento pretendido
+  // o mesmo login vindo de muitos IPs fica atrasado por conta (429, até 5 s) — é o comportamento pretendido
   registar(`${nIps} logins falhados de IPs distintos → 401/429`, falh, r => r.status === 401 || r.status === 429);
-  notas.push(`falhas Map: RSS ${m0.rss.toFixed(0)} → ${rss().rss.toFixed(0)} MB com ${nIps} IPs; logs/BD +${((fs.statSync(path.join(dir, 'clinica.db')).size + (fs.existsSync(path.join(dir, 'clinica.db-wal')) ? fs.statSync(path.join(dir, 'clinica.db-wal')).size : 0) - logs0) / 1e6).toFixed(1)} MB (login de 2 KB registado por inteiro)`);
+  notas.push(`falhas Map: RSS ${m0.rss.toFixed(0)} → ${rss().rss.toFixed(0)} MB com ${nIps} IPs; logs/BD +${((fs.statSync(path.join(dir, 'clinica.db')).size + (fs.existsSync(path.join(dir, 'clinica.db-wal')) ? fs.statSync(path.join(dir, 'clinica.db-wal')).size : 0) - logs0) / 1e6).toFixed(1)} MB (login de 2 KB cortado a 100 caracteres no log)`);
 
   // ---------- resumo ----------
   const f = n => n.toFixed(0).padStart(6);

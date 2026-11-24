@@ -141,6 +141,8 @@ function crud(method, table, id, query, body, user) {
     if (t && !soNotas) throw new HttpError(409, `Tratamento já faturado (${t.numero}). Para corrigir, emita uma nota de crédito.`);
   }
   // apagar: tratamentos realizados e próteses só o admin; o plano de tratamentos e o odontograma corrigem-se no dia a dia (fica no log)
+  // voltar a planear um realizado abriria caminho a apagá-lo: também só o admin
+  if (method === 'PUT' && table === 'tratamentos' && 'estado' in body && body.estado !== 'realizado' && get("SELECT 1 FROM tratamentos WHERE id=? AND estado='realizado'", id)) requireAdmin(user);
   if (method === 'DELETE' && (table === 'proteses' || (table === 'tratamentos' && get("SELECT 1 FROM tratamentos WHERE id=? AND estado='realizado'", id)))) requireAdmin(user);
   if (table === 'anexos') { const r = ANX.antesCrud(method, id, body, user); if (r) return r; } // normaliza o body antes do pick
   if (method === 'POST') {
@@ -288,7 +290,9 @@ function resolveIva(l) {
   return v;
 }
 function calcLinha(l) {
-  const qtd = Number(l.qtd) || 1, preco = Number(l.preco) || 0, desc = Number(l.desconto_pct) || 0;
+  const qtd = l.qtd == null || l.qtd === '' ? 1 : Number(l.qtd);
+  if (!(qtd > 0 && qtd <= 1000)) throw new HttpError(400, `Quantidade inválida em "${String(l.descricao || '').slice(0, 60)}" (1 a 1000)`);
+  const preco = Number(l.preco) || 0, desc = Number(l.desconto_pct) || 0;
   const v = resolveIva(l); const iva = Number(v.taxa) || 0;
   const base = r2(qtd * preco * (1 - desc / 100));
   return { base, iva: r2(base * iva / 100), qtd, preco, desc, ivaPct: iva, ivaId: v.id,
@@ -501,6 +505,8 @@ function orcamentoCompleto(id) {
 function aceitarOrcamento(id, user) {
   const o = orcamentoCompleto(id);
   if (o.estado === 'aceite') throw new HttpError(400, 'Orçamento já aceite');
+  // cada unidade vira um tratamento planeado: no máximo um por dente
+  if (o.linhas.some(l => Math.round(l.qtd) > 32)) throw new HttpError(400, 'Quantidade acima de 32 numa linha: divida-a antes de aceitar o orçamento');
   tx(() => {
     run("UPDATE orcamentos SET estado='aceite' WHERE id=?", id);
     for (const l of o.linhas) {
@@ -824,20 +830,22 @@ function listagem(tipo, q) {
   throw new HttpError(404, 'Listagem desconhecida');
 }
 
-// tentativas de login falhadas: 'ip:<endereço>' (5 em 10 min → bloqueio) e 'conta:<login>' (atraso progressivo a partir de 3, 15 min de bloqueio aos 10)
+// tentativas de login falhadas: 'ip:<endereço>' (5 em 10 min → 10 min de bloqueio), '<conta>|<ip>' (10 → 15 min de bloqueio nesse posto)
+// e 'conta:<login>' (de qualquer posto: só atraso progressivo a partir de 3, no máximo 5 s, para um colega não bloquear a conta de outro PC)
 const falhas = new Map();
 const HASH_FALSO = D.hashPassword(crypto.randomBytes(16).toString('hex')); // o scrypt corre também para logins inexistentes (sem enumeração por tempo)
 function bloqueioLogin(ip, conta) {
-  const agoraMs = Date.now(), fi = falhas.get(ip), fc = falhas.get(conta);
+  const agoraMs = Date.now(), fi = falhas.get(ip), fp = falhas.get(conta + '|' + ip), fc = falhas.get(conta);
   if (fi && fi.n >= 5 && agoraMs - fi.t < 10 * 60e3) return 'Demasiadas tentativas falhadas. Aguarde 10 minutos.';
-  if (fc && fc.n >= 10 && agoraMs - fc.t < 15 * 60e3) return 'Conta bloqueada temporariamente por tentativas falhadas. Aguarde 15 minutos.';
-  if (fc && fc.n >= 3 && fc.n < 10) { const espera = Math.min(2 ** (fc.n - 3), 30) * 1000 - (agoraMs - fc.t); if (espera > 0) return `Demasiadas tentativas falhadas. Aguarde ${Math.ceil(espera / 1000)} s.`; }
+  if (fp && fp.n >= 10 && agoraMs - fp.t < 15 * 60e3) return 'Conta bloqueada temporariamente neste posto por tentativas falhadas. Aguarde 15 minutos.';
+  if (fc && fc.n >= 3) { const espera = Math.min(2 ** (fc.n - 3), 5) * 1000 - (agoraMs - fc.t); if (espera > 0) return `Demasiadas tentativas falhadas. Aguarde ${Math.ceil(espera / 1000)} s.`; }
   return null;
 }
 function registarFalha(k, janela) {
   const agoraMs = Date.now(), f = falhas.get(k);
-  falhas.set(k, { n: (f && agoraMs - f.t < janela ? f.n : 0) + 1, t: agoraMs });
+  falhas.delete(k); falhas.set(k, { n: (f && agoraMs - f.t < janela ? f.n : 0) + 1, t: agoraMs }); // reinserir: a ordem do Map fica a da última falha
   if (falhas.size > 1000) for (const [x, v] of falhas) if (agoraMs - v.t > 15 * 60e3) falhas.delete(x); // as entradas antigas expiram
+  while (falhas.size > 10000) falhas.delete(falhas.keys().next().value); // teto rígido: sai a mais antiga
 }
 
 // ---------- router da API ----------
@@ -849,7 +857,8 @@ async function api(req, res, url) {
   // pedidos que alteram dados vindos de outra origem são recusados (defesa contra CSRF além do SameSite=Strict)
   if (!['GET', 'HEAD'].includes(m) && req.headers.origin) {
     let host; try { host = new URL(req.headers.origin).host; } catch { host = null; }
-    if (host !== req.headers.host) throw new HttpError(403, 'Origem do pedido não permitida');
+    const esperado = String(req.headers['x-forwarded-host'] || req.headers.host || '').split(',')[0].trim(); // atrás de um proxy, o Host original
+    if (host !== esperado) throw new HttpError(403, 'Origem do pedido não permitida');
   }
   // sem sessão, recusa antes de ler/analisar o corpo (não gasta CPU nem memória com pedidos anónimos)
   if (parts[0] !== 'login' && !currentUser(req)) { res.setHeader('Connection', 'close'); throw new HttpError(401, 'Sessão expirada. Inicie sessão novamente.'); }
@@ -865,10 +874,10 @@ async function api(req, res, url) {
     const u = get('SELECT * FROM users WHERE login=? AND ativo=1', login);
     const okPw = D.checkPassword(String(body.password || ''), u ? u.pass_hash : HASH_FALSO);
     if (!u || !okPw) {
-      registarFalha(ip, 10 * 60e3); registarFalha(conta, 15 * 60e3);
+      registarFalha(ip, 10 * 60e3); registarFalha(conta, 15 * 60e3); registarFalha(conta + '|' + ip, 15 * 60e3);
       D.log(null, 'login falhado', login.slice(0, 100)); throw new HttpError(401, 'Utilizador ou palavra-passe incorretos');
     }
-    falhas.delete(ip); falhas.delete(conta);
+    falhas.delete(ip); falhas.delete(conta); falhas.delete(conta + '|' + ip);
     run("DELETE FROM sessions WHERE criado_em <= datetime('now','localtime','-12 hours')");
     const token = crypto.randomBytes(24).toString('hex');
     run("INSERT INTO sessions VALUES (?,?,datetime('now','localtime'))", token, u.id);
@@ -1054,17 +1063,19 @@ async function api(req, res, url) {
     case 'pesquisa-vagas': { // procura horários livres para um ou dois médicos em simultâneo
       const medicos = [q.get('medico_id'), q.get('medico2_id')].filter(Boolean).map(Number);
       if (!medicos.length) throw new HttpError(400, 'Escolha o médico');
-      const dur = Number(q.get('duracao')) || 30;
+      const inteiro = (k, def, min, max) => { const v = q.get(k) ? Number(q.get(k)) : def; if (!Number.isInteger(v) || v < min || v > max) throw new HttpError(400, `Parâmetro inválido: ${k}`); return v; };
+      const dur = inteiro('duracao', 30, 5, 600);
       const cfg = D.getConfig();
       const dias = (q.get('dias') || cfg.agenda_dias || '1,2,3,4,5').split(',').filter(Boolean).map(Number);
+      if (!dias.every(x => Number.isInteger(x) && x >= 0 && x <= 6)) throw new HttpError(400, 'Parâmetro inválido: dias');
       const toM = h => { const [a, b] = String(h).split(':').map(Number); return a * 60 + (b || 0); };
       const hMin = Math.max(toM(cfg.agenda_inicio || '08:00'), toM(q.get('hora_min') || '00:00'));
       const hMax = Math.min(toM(cfg.agenda_fim || '20:00'), toM(q.get('hora_max') || '23:59'));
       const periodos = { manha: q.get('manha') !== '0', tarde: q.get('tarde') !== '0', noite: q.get('noite') === '1' };
       const okPeriodo = t => (t < 780 && periodos.manha) || (t >= 780 && t < 1200 && periodos.tarde) || (t >= 1200 && periodos.noite);
       const incluirFeriados = q.get('feriados') === '1';
-      const limite = Math.min(Number(q.get('limite')) || 20, 100);
-      const step = Number(cfg.agenda_intervalo) || 15;
+      const limite = inteiro('limite', 20, 1, 100);
+      const step = Math.max(5, Number(cfg.agenda_intervalo) || 15);
       const out = []; const d = new Date((q.get('de') || today()) + 'T12:00:00'); const now = new Date();
       for (let i = 0; i < 120 && out.length < limite; i++, d.setDate(d.getDate() + 1)) {
         const dia = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
