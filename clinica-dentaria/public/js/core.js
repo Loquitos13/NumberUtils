@@ -65,10 +65,19 @@ async function act(fn, okMsg) {
   catch (e) { toast(e.message, true); throw e; }
 }
 
+// 1.º e último nome, por grafema (emoji e acentos compostos não se partem)
+function iniciais(nome) {
+  const g = w => Intl.Segmenter ? [...new Intl.Segmenter('pt').segment(w)][0].segment : Array.from(w)[0];
+  const ws = String(nome || '').split(/\s+/).filter(Boolean);
+  return ws.filter((_, i) => i === 0 || i === ws.length - 1).map(g).join('').toUpperCase();
+}
+
 // ---------- modais ----------
 const FOCAVEIS = 'a[href], button:not([disabled]), input:not([type=hidden]):not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 let modalSeq = 0;
-function modal({ title, body = '', size = '', buttons = [], onOpen }) {
+// semAlteracoes: não pergunta "alterações por guardar" ao fechar (pesquisas, envios)
+// semCtrlS: Ctrl+S não carrega em nenhum botão (pagamentos, documentos fiscais, envios)
+function modal({ title, body = '', size = '', buttons = [], onOpen, semAlteracoes = false, semCtrlS = false }) {
   const opener = document.activeElement;
   const hid = 'mdl-h' + (++modalSeq);
   const bg = document.createElement('div');
@@ -80,7 +89,8 @@ function modal({ title, body = '', size = '', buttons = [], onOpen }) {
   const foot = $('footer', bg);
   // alterações por guardar: só contam as feitas pelo utilizador (eventos input)
   let dirty = false;
-  bodyEl.addEventListener('input', () => { dirty = true; });
+  if (!semAlteracoes) bodyEl.addEventListener('input', () => { dirty = true; });
+  if (semCtrlS) bg.dataset.semCtrlS = '';
   const close = () => {
     if (!bg.isConnected) return;
     bg.remove(); document.removeEventListener('keydown', onKey);
@@ -133,7 +143,7 @@ function modal({ title, body = '', size = '', buttons = [], onOpen }) {
 }
 function confirmDlg(msg, okLabel = 'Confirmar', danger = false) {
   return new Promise(res => {
-    modal({ title: 'Confirmação', size: 'sm', body: `<p>${esc(msg)}</p>`,
+    modal({ title: 'Confirmação', size: 'sm', semCtrlS: true, body: `<p>${esc(msg)}</p>`,
       buttons: [{ label: 'Cancelar', onClick: () => res(false) }, { label: okLabel, cls: danger ? 'danger' : 'primary', onClick: () => res(true) }] });
   });
 }
@@ -250,12 +260,8 @@ function patientPicker(input, onSelect) {
     }
     wrap.appendChild(list);
   };
-  // abre "Novo paciente" com o nome pesquisado (editPaciente ignora o 3.º argumento se não o suportar: preenche-se aqui)
-  const criar = async nome => {
-    await editPaciente(null, p => onSelect(p), { nome });
-    const m = $$('.modal-bg').pop(), n = m && $('input[name=nome]', m);
-    if (n && !n.value) { n.value = nome; n.focus(); }
-  };
+  // abre "Novo paciente" com o nome pesquisado
+  const criar = nome => editPaciente(null, p => onSelect(p), { nome });
   const choose = i => {
     if (podeCriar && i === items.length) { close(); return criar(q); }
     const p = items[i]; if (!p) return; close(); onSelect(p);

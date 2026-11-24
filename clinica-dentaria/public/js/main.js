@@ -52,11 +52,11 @@ $('#btn-pass').onclick = () => modal({ title: 'Alterar palavra-passe', size: 'sm
 $('#btn-new-marc').onclick = () => openMarcacao({});
 $('#btn-new-pac').onclick = () => editPaciente(null, p => go('#/paciente/' + p.id));
 patientPicker($('#global-search'), p => { $('#global-search').value = ''; go('#/paciente/' + p.id); });
-const visivel = el => el && el.getClientRects().length && !el.disabled;
+const visivel = el => el && el.getClientRects().length && !el.disabled && !el.matches('.danger'); // Ctrl+S nunca carrega num botão de apagar
 // botão de guardar: o principal do modal de cima, ou o [data-save] / "Guardar…" principal da página
 function botaoGuardar() {
   const m = $$('.modal-bg').pop();
-  if (m) return [...$$('[data-save]', m), ...$$('footer button.primary', m).reverse()].find(visivel);
+  if (m) return 'semCtrlS' in m.dataset ? null : [...$$('[data-save]', m), ...$$('footer button.primary', m).reverse()].find(visivel);
   const view = $('#view'), form = document.activeElement && document.activeElement.closest('#view form');
   return [...$$('[data-save]', view), ...(form ? $$('button.primary', form) : []),
     ...$$('button.primary', view).filter(b => /^guardar/i.test(b.textContent.trim()))].find(visivel);
