@@ -234,7 +234,7 @@ route('faturacao', async (view, [sub = 'documentos']) => {
   if (sub === 'caixa') {
     const de = body.dataset.de || isoDate();
     const docs = await GET(`documentos?de=${de}&ate=${de}`);
-    const st = await GET(`estatisticas?de=${de}&ate=${de}`);
+    const st = await GET(`estatisticas?de=${de}&ate=${de}&sem_divida=1`);
     body.innerHTML = `<div class="card"><div class="row">${fld('Dia', `<input type="date" id="cx-d" value="${de}">`)}<div class="spacer"></div><button id="cx-print">Imprimir fecho</button></div>
       <div class="facts"><div class="fact"><div class="l">Faturado</div><div class="v">${eur(st.kpi.faturado)}</div></div>
       <div class="fact"><div class="l">Recebido</div><div class="v ok">${eur(st.kpi.recebido)}</div></div>

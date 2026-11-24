@@ -106,6 +106,8 @@ test('devedores e pendentes batem certo com o saldo de cada paciente', async () 
   assert.deepEqual(dev.find(d => d.id === pA), { id: pA, numero: 1, nome: 'Ana Robusta', telemovel: null, faturado: 110, creditos: 50, pago: 15, saldo: 45 });
   assert.deepEqual((await ok('GET', 'listagens/pendentes')).rows.map(r => [r.id, r.saldo]), [[pA, 45], [pB, 70]]);
   assert.equal((await ok('GET', 'estatisticas')).kpi.emDivida, 115);
+  // fecho de caixa pede sem_divida=1: não percorre os saldos de todos os pacientes
+  assert.equal((await ok('GET', 'estatisticas?sem_divida=1')).kpi.emDivida, undefined);
 });
 
 test('DATA_DIR relativo: anexos descarregam-se', async () => {
@@ -135,6 +137,24 @@ test('SMS por API HTTP: texto com aspas e mudança de linha fica JSON válido', 
     await COM.enviarSMS({ sms_fornecedor: 'http', sms_url: `http://127.0.0.1:${srv.address().port}/sms`, sms_corpo: '{"to":"{para}","msg":"{texto}"}' }, { para: '912345678', texto });
     assert.equal(recebido.tipo, 'application/json');
     assert.deepEqual(JSON.parse(recebido.corpo), { to: '+351912345678', msg: texto });
+  } finally { srv.close(); }
+});
+
+test('SMS por API HTTP: corpo form-urlencoded não deixa o texto injetar parâmetros', async () => {
+  let recebido;
+  const srv = http.createServer((req, res) => {
+    let b = ''; req.on('data', c => { b += c; });
+    req.on('end', () => { recebido = { tipo: req.headers['content-type'], corpo: b }; res.end('ok'); });
+  });
+  await new Promise(r => srv.listen(0, '127.0.0.1', r));
+  try {
+    const texto = 'Olá Ana & co=1&to=+351999999999 100%';
+    await COM.enviarSMS({ sms_fornecedor: 'http', sms_url: `http://127.0.0.1:${srv.address().port}/sms`, sms_corpo: 'to={para}&text={texto}' }, { para: '912345678', texto });
+    assert.equal(recebido.tipo, 'application/x-www-form-urlencoded');
+    const p = new URLSearchParams(recebido.corpo);
+    assert.deepEqual([...p.keys()], ['to', 'text']);
+    assert.equal(p.get('to'), '+351912345678');
+    assert.equal(p.get('text'), texto);
   } finally { srv.close(); }
 });
 

@@ -550,7 +550,7 @@ function estatisticas(q) {
   const faltas = all(`SELECT COUNT(*) n FROM marcacoes m JOIN estados e ON e.id=m.estado_id WHERE e.categoria='FALTAS' AND m.inicio BETWEEN ? AND ?`, de, ateFim)[0].n;
   const faturado = r2(fatMes.reduce((a, b) => a + b.total, 0));
   const recebido = r2(recebMetodo.reduce((a, b) => a + b.total, 0));
-  const emDivida = r2(saldosPacientes().reduce((a, p) => a + (p.saldo > 0 ? p.saldo : 0), 0));
+  const emDivida = q.get('sem_divida') ? undefined : r2(saldosPacientes().reduce((a, p) => a + (p.saldo > 0 ? p.saldo : 0), 0));
   return { de, ate, porEstado, porMedico, fatMedico, fatMes, recebMetodo, topServicos, razoes,
     kpi: { marcacoes: totalMarc, faltas, taxaFaltas: totalMarc ? r2(faltas * 100 / totalMarc) : 0, novos, faturado, recebido, emDivida } };
 }
