@@ -26,29 +26,30 @@ route('agenda', async (view, params) => {
   view.innerHTML = `<div class="agenda-wrap">
     <div class="agenda-side">
       ${L().config.agenda_mensagem ? `<div class="alert info" style="white-space:pre-wrap">${esc(L().config.agenda_mensagem)}</div>` : ''}
-      <div class="card"><div id="minical" class="mini-cal"></div></div>
-      <div class="card">
-        <h3>Vista</h3>
-        <div class="subnav" id="ag-modes">
-          ${[['dia', 'Dia'], ['semana', 'Semana'], ['gabinetes', 'Gabinetes'], ['lista', 'Lista']].map(([k, l]) => `<button class="sm ${AG.mode === k ? 'active' : ''}" data-m="${k}">${l}</button>`).join('')}
+      <div class="card ag-cal"><div id="minical" class="mini-cal"></div></div>
+      <div class="card ag-vista">
+        <h2 id="ag-vista-h" style="font-size:.92rem">Vista</h2>
+        <div class="subnav" id="ag-modes" role="group" aria-labelledby="ag-vista-h">
+          ${[['dia', 'Dia'], ['semana', 'Semana'], ['gabinetes', 'Gabinetes'], ['lista', 'Lista']].map(([k, l]) => `<button class="sm ${AG.mode === k ? 'active' : ''}" aria-pressed="${AG.mode === k}" data-m="${k}">${l}</button>`).join('')}
         </div>
-        <div id="ag-filter"></div>
       </div>
-      <div class="card"><div class="row between"><h3 style="margin:0">Lista de espera</h3><span class="badge warn" id="ag-esp-n">…</span></div>
+      <div class="card" id="ag-filter"></div>
+      <div class="card"><div class="row between"><h2 style="margin:0;font-size:.92rem">Lista de espera</h2><span class="badge warn" id="ag-esp-n">…</span></div>
         <div class="row" style="margin-top:8px"><button class="sm" id="ag-esp">Ver lista</button><button class="sm" id="ag-esp-add">Adicionar</button></div></div>
-      <div class="card"><h3>Estados</h3><div class="legend">${ativos(L().estados).map(e => `<span><span class="dot" style="background:${esc(e.cor)}"></span>${esc(e.nome)}</span>`).join('')}</div></div>
+      <div class="card"><details><summary>Legenda dos estados</summary><div class="legend" style="margin-top:8px">${ativos(L().estados).map(e => `<span><span class="dot" style="background:${esc(e.cor)}"></span>${esc(e.nome)}</span>`).join('')}</div></details></div>
     </div>
     <div class="agenda-main">
       <div class="page-head">
         <button id="ag-prev" class="icon" aria-label="Anterior" title="Anterior"><i data-ic="chevron-left"></i></button><button id="ag-today">Hoje</button><button id="ag-next" class="icon" aria-label="Seguinte" title="Seguinte"><i data-ic="chevron-right"></i></button>
-        <h1 id="ag-title" style="font-size:1.2rem"></h1>
+        <h1 id="ag-title" style="font-size:1.2rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0"></h1>
         <span id="ag-hol" class="badge danger hidden"></span>
         <div class="spacer"></div>
         <button id="ag-compacto" aria-pressed="${SLOT_H < 22}" title="Linhas mais baixas para ver o dia inteiro">Compacto</button>
         <button id="ag-vagas">Procurar vaga</button>
-        <button id="ag-bloq" title="Férias, congressos, ausências">Bloquear</button>
         <button id="ag-sms">Lembretes</button>
-        <button id="ag-print">Imprimir</button>
+        <details class="mais"><summary class="btn" aria-label="Mais ações">Mais ⋯</summary><div class="mais-menu" role="menu">
+          <button role="menuitem" id="ag-bloq" title="Férias, congressos, ausências">Bloquear agenda…</button>
+          <button role="menuitem" id="ag-print">Imprimir agenda</button></div></details>
       </div>
       <div id="ag-body"></div>
     </div></div>`;
@@ -69,6 +70,7 @@ route('agenda', async (view, params) => {
   GET('espera').then(l => { const b = $('#ag-esp-n'); if (b) b.textContent = l.length; });
   $('#ag-sms', view).onclick = lembretesDia;
   $('#ag-print', view).onclick = imprimirAgenda;
+  $$('.mais-menu button', view).forEach(b => b.addEventListener('click', () => { b.closest('details').open = false; }));
 
   // filtros
   const f = $('#ag-filter', view);
@@ -82,7 +84,7 @@ route('agenda', async (view, params) => {
     $$('input', f).forEach(c => c.onchange = () => { c.checked ? AG.medicos.add(Number(c.value)) : AG.medicos.delete(Number(c.value)); drawAgenda(); });
     $('[data-all]', f).onclick = () => { AG.medicos = new Set(meds.map(m => m.id)); render(); };
     $('[data-none]', f).onclick = () => { AG.medicos = new Set(); render(); };
-  } else f.innerHTML = '<p class="muted small">Ocupação por gabinete.</p>';
+  } else f.innerHTML = '<p class="muted small" style="margin:0">Ocupação por gabinete.</p>';
 
   await drawAgenda();
 });
@@ -123,14 +125,18 @@ async function drawAgenda() {
   const diasAbertos = (cfg.agenda_dias || '1,2,3,4,5').split(',').map(Number);
   const meds = ativos(L().medicos);
   let cols = [], de = AG.date, ate = AG.date;
+  const sms = $('#ag-sms'); if (sms) sms.textContent = 'Lembretes para ' + fmtDate(diaLembretes()).slice(0, 5);
+  $('#ag-title').title = '';
 
   if (AG.mode === 'semana') {
     de = weekStart(AG.date); ate = addDays(de, 6);
-    $('#ag-title').textContent = `Semana de ${fmtDate(de)} a ${fmtDate(ate)} — ${byId(meds, AG.medicoSemana)?.nome || ''}`;
+    const dm = d => fmtDate(d).slice(0, 5);
+    $('#ag-title').textContent = `${de.slice(5, 7) === ate.slice(5, 7) ? de.slice(8) : dm(de)}–${dm(ate)} · ${byId(meds, AG.medicoSemana)?.nome || ''}`;
+    $('#ag-title').title = `Semana de ${fmtDate(de)} a ${fmtDate(ate)}`;
     for (let i = 0; i < 7; i++) {
       const iso = addDays(de, i); const dow = new Date(iso + 'T12:00:00').getDay();
       if (!diasAbertos.includes(dow) && i >= 5) continue;
-      cols.push({ key: iso, title: `${DIAS_C[dow]} ${fmtDate(iso).slice(0, 5)}`, date: iso, medico_id: AG.medicoSemana, filter: m => m.inicio.startsWith(iso) && m.medico_id === AG.medicoSemana, closed: !diasAbertos.includes(dow) });
+      cols.push({ key: iso, title: `${DIAS_C[dow]} ${dm(iso)}`, date: iso, medico_id: AG.medicoSemana, filter: m => m.inicio.startsWith(iso) && m.medico_id === AG.medicoSemana, closed: !diasAbertos.includes(dow) });
     }
   } else if (AG.mode === 'gabinetes') {
     $('#ag-title').textContent = dataLonga(AG.date);
@@ -140,8 +146,11 @@ async function drawAgenda() {
     cols = meds.filter(m => AG.medicos.has(m.id)).map(m => ({ key: 'm' + m.id, title: m.nome, color: m.cor, date: AG.date, medico_id: m.id, filter: x => x.medico_id === m.id }));
   }
 
-  const hol = AG.mode !== 'semana' ? await feriadoDe(AG.date) : null;
+  await Promise.all([...new Set([de, ate].map(d => Number(d.slice(0, 4))))].map(loadFeriados));
+  const ferDe = d => AG.feriados[d.slice(0, 4)][d];
+  const hol = AG.mode !== 'semana' ? ferDe(AG.date) : null;
   $('#ag-hol').classList.toggle('hidden', !hol); $('#ag-hol').textContent = hol ? 'Feriado: ' + hol : '';
+  for (const c of cols) { c.hol = ferDe(c.date); if (c.hol) c.closed = true; }
 
   const [marc, bloqs] = await Promise.all([GET(`agenda?de=${de}&ate=${ate}`), GET(`bloqueios?de=${de}&ate=${ate}`)]);
 
@@ -149,15 +158,14 @@ async function drawAgenda() {
     const rows = marc.filter(m => AG.medicos.has(m.medico_id));
     body.innerHTML = `<div class="card">${table(rows, [
       { h: 'Hora', cls: 'nowrap', f: m => `<b>${fmtTime(m.inicio)}</b>–${fmtTime(m.fim)}` },
-      { h: 'Paciente', f: m => `${esc(m.paciente_nome)} <span class="muted small nowrap">n.º ${esc(m.paciente_numero)}</span>` },
-      { h: 'Contacto', cls: 'nowrap', f: m => esc(m.paciente_telemovel) },
+      { h: 'Paciente', f: m => `${esc(m.paciente_nome)} <span class="muted small nowrap">n.º ${esc(m.paciente_numero)}</span>${m.paciente_telemovel ? `<div class="small muted num">${esc(m.paciente_telemovel)}</div>` : ''}` },
       { h: 'Médico', cls: 'nowrap', f: m => `<span class="dot" style="background:${esc(m.medico_cor)}"></span>${esc(m.medico_nome)}` },
       { h: 'Gabinete', cls: 'nowrap', f: m => esc(m.gabinete_nome) },
       { h: 'Serviço', f: m => esc(m.servico_nome) },
       { h: 'Estado', cls: 'nowrap', f: estadoBadge },
       { h: '', cls: 'right nowrap', f: m => estadoRapido(m) },
     ], { onClick: m => openMarcacao({ id: m.id }), empty: 'Sem marcações neste dia' })}</div>
-    ${bloqs.length ? `<div class="card"><h3>Bloqueios / ausências</h3>${bloqs.map(b => `<div class="row" style="padding:4px 0"><span class="badge danger">${esc(b.tipo_nome)}</span> ${esc(b.medico_nome || 'Todos os médicos')} · ${fmtDT(b.inicio)} → ${fmtDT(b.fim)} ${esc(b.motivo || '')}<button class="ghost sm icon" data-bl="${b.id}" aria-label="Editar" title="Editar"><i data-ic="edit"></i></button></div>`).join('')}</div>` : ''}`;
+    ${bloqs.length ? `<div class="card"><h2 style="font-size:.92rem">Bloqueios / ausências</h2>${bloqs.map(b => `<div class="row" style="padding:4px 0"><span class="badge danger">${esc(b.tipo_nome)}</span> ${esc(b.medico_nome || 'Todos os médicos')} · ${fmtDT(b.inicio)} → ${fmtDT(b.fim)} ${esc(b.motivo || '')}<button class="ghost sm icon" data-bl="${b.id}" aria-label="Editar" title="Editar"><i data-ic="edit"></i></button></div>`).join('')}</div>` : ''}`;
     $$('[data-bl]', body).forEach(x => x.onclick = () => editBloqueio(byId(bloqs, x.dataset.bl)));
     bindEstadoRapido(body);
     return;
@@ -179,22 +187,29 @@ async function drawAgenda() {
     c.nLanes = lanes.length;
   }
   const rm = AG.remarcar;
-  let h = (rm ? `<div class="alert info row between" role="status" style="margin-bottom:8px"><span>A remarcar <b>${esc(rm.paciente_nome)}</b> (${fmtDT(rm.inicio)}) — clique numa hora livre, ou escolha-a com Tab e Enter. Esc cancela.</span><button class="sm" data-rm-x>Cancelar remarcação</button></div>` : '') +
+  let h = (rm ? `<div class="alert info row between" role="status" style="margin-bottom:8px"><span>A remarcar <b>${esc(rm.paciente_nome)}</b> (${fmtDT(rm.inicio)}) — clique numa hora livre, ou escolha-a com as setas e Enter. Esc cancela.</span><button class="sm" data-rm-x>Cancelar remarcação</button></div>` : '') +
     `<div class="cal" style="grid-template-columns:56px ${cols.map(c => `minmax(${Math.max(AG.mode === 'semana' ? 110 : 150, c.nLanes * 110)}px,1fr)`).join(' ')}">
-    <div class="colh corner"></div>${cols.map(c => `<div class="colh" title="${esc(c.title)}">${c.color ? `<span class="dot" style="background:${esc(c.color)}"></span>` : ''}${esc(c.title)}</div>`).join('')}
+    <div class="colh corner"></div>${cols.map(c => { const t = c.title + (c.hol && AG.mode === 'semana' ? ' · ' + c.hol : ''); return `<div class="colh" title="${esc(c.hol ? `${c.title} — feriado: ${c.hol}` : c.title)}">${c.color ? `<span class="dot" style="background:${esc(c.color)}"></span>` : ''}${esc(t)}</div>`; }).join('')}
     <div class="times" style="height:${H}px">`;
   for (let i = 0; i < nSlots; i++) {
     const t = t0 + i * step;
     h += `<div class="tlabel" style="height:${SLOT_H}px">${t % 60 === 0 || step >= 30 ? minToHHMM(t) : ''}</div>`;
   }
   h += '</div>';
-  const nowMin = new Date().getHours() * 60 + new Date().getMinutes();
+  const nowMin = new Date().getHours() * 60 + new Date().getMinutes(), hoje = isoDate();
   for (const c of cols) {
-    const closed = c.closed || (AG.mode === 'semana' && AG.feriados[c.date.slice(0, 4)]?.[c.date]);
-    h += `<div class="col ${closed ? 'closed' : ''}" data-col="${esc(c.key)}" style="height:${H}px">`;
+    // bloqueios (férias, congressos, ausências) deste dia/coluna: [início, fim] em minutos
+    const blks = AG.mode === 'gabinetes' ? [] : bloqs.filter(b => !b.medico_id || b.medico_id === c.medico_id).map(b => {
+      const s0 = b.inicio.slice(0, 10) < c.date ? t0 : Math.max(t0, toMin(fmtTime(b.inicio)));
+      const e0 = b.fim.slice(0, 10) > c.date ? t1 : Math.min(t1, toMin(fmtTime(b.fim)));
+      return b.inicio.slice(0, 10) > c.date || b.fim.slice(0, 10) < c.date || e0 <= s0 ? null : { b, s0, e0 };
+    }).filter(Boolean);
+    h += `<div class="col ${c.closed ? 'closed' : ''}" data-col="${esc(c.key)}" style="height:${H}px">`;
     for (let i = 0; i < nSlots; i++) {
       const t = t0 + i * step;
-      h += `<div class="slot ${(t + step) % 60 === 0 ? 'hour' : ''}" style="height:${SLOT_H}px" data-t="${minToHHMM(t)}" tabindex="0" role="button" aria-label="${esc(`${c.title}, ${minToHHMM(t)}`)}"></div>`;
+      const past = c.date < hoje || (c.date === hoje && t + step <= nowMin);
+      const fech = c.closed || blks.some(x => x.s0 <= t && t < x.e0);
+      h += `<div class="slot ${(t + step) % 60 === 0 ? 'hour' : ''}${past ? ' past' : ''}${fech ? ' closed' : ''}" style="height:${SLOT_H}px" data-t="${minToHHMM(t)}" tabindex="-1" role="button" aria-label="${esc(`${c.title}, ${minToHHMM(t)}${c.hol ? `, feriado (${c.hol})` : fech ? ', fechado' : ''}`)}"></div>`;
     }
     const evs = c.evs;
     for (const e of evs) {
@@ -205,16 +220,12 @@ async function drawAgenda() {
       const inact = ['INATIVAS', 'FALTAS'].includes(e.estado_categoria);
       const sub = AG.mode === 'gabinetes' ? e.medico_nome : (e.servico_nome || '');
       const estreito = nL >= 3; // faixa estreita: o nome vai primeiro, a hora passa para a 2.ª linha
-      h += `<div class="ev ${inact ? 'inact' : ''}" data-id="${e.id}" tabindex="0" role="button" aria-label="${esc(`${fmtTime(e.inicio)}–${fmtTime(e.fim)} ${e.paciente_nome}, ${e.estado_nome}`)}"
+      h += `<div class="ev ${inact ? 'inact' : ''}${hh < 30 ? ' curta' : ''}" data-id="${e.id}" data-s="${s}" data-f="${f}" tabindex="-1" role="button" aria-label="${esc(`${fmtTime(e.inicio)}–${fmtTime(e.fim)} ${e.paciente_nome}, ${[sub, e.estado_nome].filter(Boolean).join(', ')}`)}"
         style="top:${top}px;height:${hh}px;left:calc(${e._lane * w}% + 3px);width:calc(${w}% - 6px);right:auto;--st:${esc(e.estado_cor)};${rm ? 'pointer-events:none;opacity:.55;' : ''}"
         title="${esc(`${fmtTime(e.inicio)}-${fmtTime(e.fim)} ${e.paciente_nome}\n${e.servico_nome || ''}\n${e.estado_nome}${e.notas ? '\n' + e.notas : ''}`)}">
-        <div class="h"><span class="dot"></span>${estreito ? '' : `<span class="num">${fmtTime(e.inicio)}</span> `}${esc(e.paciente_nome)}</div><div class="small">${estreito ? `<span class="num">${fmtTime(e.inicio)}</span> ` : ''}${esc(sub)}${e.notas ? ' · notas' : ''}${e.primeira ? ' · 1.ª consulta' : ''}</div></div>`;
+        <div class="h"><span class="dot"></span>${estreito ? '' : `<span class="num">${fmtTime(e.inicio)}</span> `}${esc(e.paciente_nome)}</div><div class="small">${estreito ? `<span class="num">${fmtTime(e.inicio)}</span> ` : ''}${esc(e.estado_nome)}${sub ? ' · ' + esc(sub) : ''}${e.notas ? ' · notas' : ''}${e.primeira ? ' · 1.ª consulta' : ''}</div></div>`;
     }
-    // bloqueios (férias, congressos, ausências)
-    if (AG.mode !== 'gabinetes') for (const b of bloqs.filter(b => !b.medico_id || b.medico_id === c.medico_id)) {
-      const s0 = b.inicio.slice(0, 10) < c.date ? t0 : Math.max(t0, toMin(fmtTime(b.inicio)));
-      const e0 = b.fim.slice(0, 10) > c.date ? t1 : Math.min(t1, toMin(fmtTime(b.fim)));
-      if (b.inicio.slice(0, 10) > c.date || b.fim.slice(0, 10) < c.date || e0 <= s0) continue;
+    for (const { b, s0, e0 } of blks) {
       h += `<div class="blk" data-bl="${b.id}" style="top:${(s0 - t0) * pxMin}px;height:${(e0 - s0) * pxMin}px" title="${esc(b.tipo_nome + (b.motivo ? ': ' + b.motivo : ''))}">${esc(b.tipo_nome)}${b.motivo ? ' — ' + esc(b.motivo) : ''}</div>`;
     }
     if (c.date === isoDate() && nowMin >= t0 && nowMin <= t1) h += `<div class="now-line" style="top:${(nowMin - t0) * pxMin}px"></div>`;
@@ -228,47 +239,102 @@ async function drawAgenda() {
     const blk = el.closest('.blk');
     if (blk) return editBloqueio(byId(bloqs, blk.dataset.bl));
     const ev = el.closest('.ev');
-    if (ev) return AG.remarcar ? null : openMarcacao({ id: Number(ev.dataset.id) });
+    if (ev) return AG.remarcar ? null : App.user.perfil === 'medico' ? go('#/consulta/' + ev.dataset.id) : openMarcacao({ id: Number(ev.dataset.id) });
     const slot = el.closest('.slot'); if (!slot) return;
     const c = colMap[slot.closest('.col').dataset.col];
     if (AG.remarcar) return moverMarcacao(AG.remarcar, c, slot.dataset.t);
     openMarcacao({ date: c.date, hora: slot.dataset.t, medico_id: c.medico_id, gabinete_id: c.gabinete_id });
   };
-  let arrastou = false, drag = null;
+  // teclado: um só ponto de Tab na grelha (roving tabindex); setas entre horas/colunas, Home → 1.ª marcação, Enter abre
+  const colEls = $$('.col', cal);
+  const tempo = x => x.classList.contains('ev') ? Number(x.dataset.s) : toMin(x.dataset.t);
+  const itens = col => { // marcações e horas livres da coluna, por ordem; as horas tapadas por uma marcação saltam-se
+    const evs = rm ? [] : $$('.ev', col), out = []; let k = 0;
+    for (const s of $$('.slot', col)) {
+      const t = toMin(s.dataset.t);
+      while (k < evs.length && Number(evs[k].dataset.s) <= t) out.push(evs[k++]);
+      if (!evs.some(e => Number(e.dataset.s) <= t && t < Number(e.dataset.f))) out.push(s);
+    }
+    return out.concat(evs.slice(k));
+  };
+  cal.addEventListener('focusin', e => {
+    const it = e.target.closest('.ev, .slot'); if (!it || it.tabIndex === 0) return;
+    $$('.ev[tabindex="0"], .slot[tabindex="0"]', cal).forEach(x => { x.tabIndex = -1; }); it.tabIndex = 0;
+  });
+  const ini = rm ? $('.slot', cal) : $('.ev', cal) || $('.slot:not(.past)', cal) || $('.slot', cal);
+  if (ini) ini.tabIndex = 0;
+  let arrastou = false, drag = null, cancelado = false;
   cal.addEventListener('click', e => { if (!arrastou) ativar(e.target); });
   cal.addEventListener('keydown', e => {
-    if ((e.key === 'Enter' || e.key === ' ') && e.target.matches('.ev, .slot')) { e.preventDefault(); ativar(e.target); }
+    if (e.key === 'Escape' && drag?.on) { e.preventDefault(); e.stopPropagation(); fimDrag(); cancelado = true; return; }
+    const it = e.target.closest('.ev, .slot'); if (!it) return;
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); ativar(it); return; }
+    const col = it.closest('.col'), ci = colEls.indexOf(col);
+    let alvo;
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { const l = itens(col); alvo = l[l.indexOf(it) + (e.key === 'ArrowDown' ? 1 : -1)]; }
+    else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+      const nc = colEls[ci + (e.key === 'ArrowRight' ? 1 : -1)];
+      if (nc) { const t = tempo(it), l = itens(nc); alvo = l.findLast(x => tempo(x) <= t) || l[0]; }
+    } else if (e.key === 'Home') alvo = rm ? $('.slot', col) : $('.ev', col) || $('.ev', cal);
+    else return;
+    e.preventDefault(); alvo?.focus();
   });
   // arrastar uma marcação para outra hora/coluna (rato/caneta; no tablet usa-se "Remarcar" no modal)
-  const pinta = (d, slot) => { if (d.alvo === slot) return; d.alvo?.style.removeProperty('background'); d.alvo = slot; if (slot) slot.style.background = 'var(--blue-wash)'; };
-  const fimDrag = () => { const d = drag, alvo = d?.alvo; drag = null; if (d?.on) { d.ev.style.opacity = ''; d.ev.style.cursor = ''; pinta(d, null); } return d && { ...d, alvo }; };
+  // realça a duração toda no destino e escreve a hora nova no 1.º intervalo
+  const pinta = (d, slot) => {
+    if (d.alvo === slot) return;
+    for (const s of d.marcados || []) { s.style.removeProperty('background'); s.textContent = ''; }
+    d.alvo = slot; d.marcados = [];
+    if (!slot) return;
+    const ss = $$('.slot', slot.closest('.col')), i = ss.indexOf(slot);
+    d.marcados = ss.slice(i, i + Math.max(1, Math.ceil(d.dur / step)));
+    for (const s of d.marcados) s.style.background = 'var(--blue-wash)';
+    slot.innerHTML = `<span class="num" style="display:block;padding-left:4px;font-size:.8rem;line-height:${Math.max(SLOT_H, 14)}px;font-weight:600;color:var(--blue-ink);pointer-events:none;white-space:nowrap">${slot.dataset.t}–${minToHHMM(toMin(slot.dataset.t) + d.dur)}</span>`;
+  };
+  const alvoEm = (x, y) => {
+    const s = document.elementsFromPoint(x, y).find(el => el.classList.contains('slot') && cal.contains(el)); if (!s) return null;
+    const ss = $$('.slot', s.closest('.col')); return ss[Math.max(0, ss.indexOf(s) - drag.off)];
+  };
+  // perto das margens da grelha, rola sozinha (~10px por frame) e volta a calcular o destino
+  const autoScroll = () => {
+    if (!drag?.on) return;
+    const r = cal.getBoundingClientRect(), V = 10;
+    const dy = drag.cy < r.top + 70 ? -V : drag.cy > r.bottom - 40 ? V : 0, dx = drag.cx < r.left + 96 ? -V : drag.cx > r.right - 40 ? V : 0;
+    const t = cal.scrollTop, l = cal.scrollLeft;
+    cal.scrollTop += dy; cal.scrollLeft += dx;
+    if (cal.scrollTop !== t || cal.scrollLeft !== l) pinta(drag, alvoEm(drag.cx, drag.cy));
+    drag.raf = requestAnimationFrame(autoScroll);
+  };
+  const fimDrag = () => { const d = drag, alvo = d?.alvo; drag = null; if (d?.on) { cancelAnimationFrame(d.raf); d.ev.style.opacity = ''; d.ev.style.cursor = ''; pinta(d, null); } return d && { ...d, alvo }; };
   cal.addEventListener('pointerdown', e => {
     const ev = e.target.closest('.ev');
-    if (ev && e.button === 0 && e.pointerType !== 'touch' && !AG.remarcar) drag = { ev, x: e.clientX, y: e.clientY, id: e.pointerId, off: Math.floor((e.clientY - ev.getBoundingClientRect().top) / SLOT_H) }; // off: slots entre o topo e o ponto agarrado
+    if (ev && e.button === 0 && e.pointerType !== 'touch' && !AG.remarcar) drag = { ev, x: e.clientX, y: e.clientY, id: e.pointerId, dur: ev.dataset.f - ev.dataset.s, off: Math.floor((e.clientY - ev.getBoundingClientRect().top) / SLOT_H) }; // off: slots entre o topo e o ponto agarrado
   });
   cal.addEventListener('pointermove', e => {
     if (!drag) return;
     if (!drag.on) {
       if (Math.hypot(e.clientX - drag.x, e.clientY - drag.y) < 6) return;
       drag.on = true; drag.ev.setPointerCapture(drag.id); drag.ev.style.opacity = '.5'; drag.ev.style.cursor = 'grabbing';
+      drag.raf = requestAnimationFrame(autoScroll);
     }
     document.getSelection()?.removeAllRanges();
-    const s = document.elementsFromPoint(e.clientX, e.clientY).find(x => x.classList.contains('slot') && cal.contains(x));
-    const ss = s ? $$('.slot', s.closest('.col')) : [];
-    pinta(drag, s ? ss[Math.max(0, ss.indexOf(s) - drag.off)] : null);
+    drag.cx = e.clientX; drag.cy = e.clientY;
+    pinta(drag, alvoEm(e.clientX, e.clientY));
   });
   cal.addEventListener('pointerup', () => {
-    const d = fimDrag(); if (!d?.on) return;
-    arrastou = true; setTimeout(() => { arrastou = false; });
-    if (d.alvo) moverMarcacao(byId(marc, d.ev.dataset.id), colMap[d.alvo.closest('.col').dataset.col], d.alvo.dataset.t);
+    const d = fimDrag();
+    if (!d?.on && !cancelado) return;
+    cancelado = false; arrastou = true; setTimeout(() => { arrastou = false; }); // o click que se segue não abre a marcação
+    if (d?.alvo) moverMarcacao(byId(marc, d.ev.dataset.id), colMap[d.alvo.closest('.col').dataset.col], d.alvo.dataset.t);
   });
-  cal.addEventListener('pointercancel', fimDrag);
+  cal.addEventListener('pointercancel', () => { fimDrag(); cancelado = false; });
   if (rm) {
     $('[data-rm-x]', body).onclick = () => { AG.remarcar = null; drawAgenda(); };
     const c = cols.find(c => c.filter(rm)) || cols[0];
     ($(`[data-col="${c.key}"] .slot[data-t="${fmtTime(rm.inicio)}"]`, cal) || $('.slot', cal))?.focus();
   } else if (AG.date === isoDate()) cal.scrollTop = Math.max(0, (nowMin - t0) * pxMin - 120); // rola até à hora atual
 }
+const diaLembretes = () => addDays(AG.date, AG.date === isoDate() ? 1 : 0); // hoje → lembretes de amanhã
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape' && AG.remarcar && !$('.modal-bg')) { AG.remarcar = null; if (App.current === 'agenda') drawAgenda(); }
 });
@@ -282,7 +348,10 @@ async function moverMarcacao(m, c, hora) {
   if (c.gabinete_id && c.gabinete_id !== m.gabinete_id) p.gabinete_id = c.gabinete_id;
   if (p.inicio === m.inicio.slice(0, 16) && !p.medico_id && !p.gabinete_id) return;
   const com = [p.medico_id && byId(L().medicos, p.medico_id)?.nome, p.gabinete_id && byId(L().gabinetes, p.gabinete_id)?.nome].filter(Boolean).join(', ');
-  if (!await confirmDlg(`Remarcar ${m.paciente_nome} de ${fmtDT(m.inicio)} para ${fmtDT(p.inicio)}${com ? ` (${com})` : ''}?`, 'Remarcar')) return;
+  const fecho = L().config.agenda_fim || '20:00', agora = new Date();
+  const avisos = [p.inicio < `${isoDate()}T${minToHHMM(agora.getHours() * 60 + agora.getMinutes())}` && 'a nova hora já passou',
+    fim > toMin(fecho) && `termina às ${minToHHMM(fim)}, depois do fecho (${fecho})`].filter(Boolean);
+  if (!await confirmDlg(`Remarcar ${m.paciente_nome} de ${fmtDT(m.inicio)} para ${fmtDT(p.inicio)}${com ? ` (${com})` : ''}?${avisos.length ? ` Atenção: ${avisos.join('; ')}.` : ''}`, 'Remarcar', avisos.length > 0)) return;
   AG.remarcar = null;
   try {
     const g = await gravarComConflito(forcar => PUT('marcacoes/' + m.id, { ...p, forcar }),
@@ -313,11 +382,11 @@ async function gravarComConflito(save, vaga, antesVaga) {
 }
 
 const estadoBadge = m => `<span class="badge est" style="--st:${esc(m.estado_cor)}">${esc(m.estado_nome)}</span>`;
-function estadoRapido(m) {
+function estadoRapido(m, { consulta = true } = {}) {
   const pres = L().estados.find(e => e.nome === 'Presente'), falt = L().estados.find(e => e.categoria === 'FALTAS');
   // Presente/Faltou só enquanto a marcação está por acontecer (não depois de presente, em consulta, concluída, faltou ou desmarcada)
   const porVir = m.estado_categoria === 'OUTRAS' && m.estado_id !== pres?.id && m.estado_nome !== 'Em consulta';
-  return `<span class="nowrap"><a class="btn sm" href="#/consulta/${m.id}">Consulta</a> ${porVir && pres ? `<button class="sm" data-est="${pres.id}" data-mid="${m.id}" title="Marcar presente">Presente</button>` : ''}
+  return `<span class="nowrap">${consulta ? `<a class="btn sm" href="#/consulta/${m.id}">Abrir consulta</a> ` : ''}${porVir && pres ? `<button class="sm" data-est="${pres.id}" data-mid="${m.id}" title="Marcar presente">Presente</button>` : ''}
     ${porVir && falt ? `<button class="sm" data-est="${falt.id}" data-mid="${m.id}" title="Marcar falta">Faltou</button>` : ''}</span>`;
 }
 function bindEstadoRapido(root, after = drawAgenda) {
@@ -337,9 +406,15 @@ async function openMarcacao({ id, date, hora, medico_id, gabinete_id, paciente, 
   const dur = m ? toMin(fmtTime(m.fim)) - toMin(fmtTime(m.inicio)) + (m.fim.slice(0, 10) !== m.inicio.slice(0, 10) ? 1440 : 0) : durDefault;
   const medId = (m && !date ? m.medico_id : medico_id) || m?.medico_id || App.user.medico_id || ativos(lk.medicos)[0]?.id;
   const estados = ativos(lk.estados);
+  if (!m) { // nova marcação num feriado: avisa antes de abrir o formulário
+    const hol = await feriadoDe(ini.slice(0, 10));
+    if (hol && !await confirmDlg(`${fmtDate(ini)} é feriado (${hol}). Marcar mesmo assim?`, 'Marcar mesmo assim')) return;
+  }
+  const rapido = m ? estadoRapido(m, { consulta: false }) : '';
   const body = `<form class="form-grid" onsubmit="return false">
-    <div class="s3">${pacField('paciente_id', m?.paciente_id ?? paciente?.id, m?.paciente_nome ?? paciente?.nome)}</div>
-    <div class="field"><label class="f">&nbsp;</label><button type="button" id="mk-newpac" style="width:100%">Novo paciente</button></div>
+    ${rapido.includes('data-est') ? `<div class="s4 row" id="mk-rapido" style="margin-bottom:4px"><span class="muted small">Chegada:</span> ${rapido}</div>` : ''}
+    ${m ? `<div class="s4">${pacField('paciente_id', m.paciente_id, m.paciente_nome)}</div>` : `<div class="s3">${pacField('paciente_id', paciente?.id, paciente?.nome)}</div>
+    <div class="field"><label class="f">&nbsp;</label><button type="button" id="mk-newpac" style="width:100%">Novo paciente</button></div>`}
     <div class="s4" id="mk-alert" hidden></div>
     ${fld('Médico', sel('medico_id', opts(lk.medicos, medId, { only: x => x.ativo })), 's2')}
     ${fld('Gabinete', sel('gabinete_id', opts(lk.gabinetes, m?.gabinete_id ?? gabinete_id, { empty: '—', only: x => x.ativo })), 's2')}
@@ -358,7 +433,6 @@ async function openMarcacao({ id, date, hora, medico_id, gabinete_id, paciente, 
     await DEL('marcacoes/' + m.id); toast('Marcação eliminada'); refreshCurrent();
   } });
   if (m) buttons.push({ label: 'Abrir consulta', onClick: () => go('#/consulta/' + m.id) });
-  if (m) buttons.push({ label: 'Ficha', onClick: () => go('#/paciente/' + m.paciente_id) });
   if (m) buttons.push({ label: 'Avisar paciente', onClick: async () => { await smsMarcacoes([m.id], `Avisar ${m.paciente_nome}`, 'Confirmação de marcação'); return false; } });
   if (m) buttons.push({ label: 'Remarcar', onClick: () => { // escolher a nova hora diretamente na grelha (teclado/tablet)
     AG.remarcar = m; AG.date = m.inicio.slice(0, 10);
@@ -393,10 +467,20 @@ async function openMarcacao({ id, date, hora, medico_id, gabinete_id, paciente, 
       const al = [p.telemovel && `Tel.: ${p.telemovel}`, p.ultima && `Última: ${fmtDT(p.ultima.inicio)} (${p.ultima.estado_nome})`].filter(Boolean);
       $('#mk-info', c.body).innerHTML = al.map(esc).join(' · ');
     };
-    bindPacField(form, 'paciente_id', p => info(p.id));
+    bindPacField(form, 'paciente_id', p => { info(p.id); form.servico_id.focus(); });
     if (m || paciente) info(m?.paciente_id ?? paciente.id);
     form.servico_id.onchange = () => { const s = byId(lk.servicos, form.servico_id.value); if (s) form.duracao.value = s.duracao_min; };
-    $('#mk-newpac', c.body).onclick = () => editPaciente(null, p => { form.paciente_id.value = p.id; $('[data-pac]', form).value = p.nome; info(p.id); });
+    if (!m) { $('#mk-newpac', c.body).onclick = () => editPaciente(null, p => { form.paciente_id.value = p.id; $('[data-pac]', form).value = p.nome; info(p.id); form.servico_id.focus(); }); return; }
+    // marcação existente: nome do paciente no título leva à ficha; o foco vai para o Estado
+    $('header h2', c.el).innerHTML = `Marcação — <a href="#/paciente/${m.paciente_id}" title="Abrir a ficha do paciente">${esc(m.paciente_nome)}</a>`;
+    form.estado_id.focus();
+    // Presente/Faltou: grava só o estado; com outras alterações por guardar, grava tudo (Guardar)
+    $$('[data-est]', c.body).forEach(b => b.onclick = async () => {
+      form.estado_id.value = b.dataset.est;
+      if (c.el._dirty()) return $('footer button.primary', c.el).click();
+      await act(() => PUT('marcacoes/' + m.id, { estado_id: Number(b.dataset.est), forcar: true }), 'Estado atualizado');
+      c.close(); refreshCurrent();
+    });
   } });
 }
 
