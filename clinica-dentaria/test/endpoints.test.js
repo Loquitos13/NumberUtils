@@ -85,8 +85,8 @@ ep('todos', 'GET', 'documentos'); ep('todos', 'GET', `documentos/${N}`); ep('tod
 ep('todos', 'POST', `documentos/${N}/email`, {}); ep('todos', 'POST', 'recibos', {}); ep('todos', 'GET', 'devedores');
 ep('todos', 'GET', 'stocks/existencias'); ep('todos', 'GET', 'stocks/lotes?produto_id=1'); ep('todos', 'GET', 'stocks/movimentos'); ep('todos', 'POST', 'stocks/transferir', {});
 ep('todos', 'GET', 'proteses'); ep('todos', 'GET', 'estatisticas'); ep('todos', 'GET', 'aniversarios');
-ep('todos', 'POST', 'sms/preparar', {}, { todo: 'BUG: sms/preparar sem modelo_id → 500 "cannot be bound to SQLite parameter" em vez de 400' }); ep('todos', 'GET', 'sms/historico'); ep('todos', 'GET', 'sms/estado'); ep('todos', 'POST', 'sms/marcar-enviado', {});
-ep('admin', 'POST', 'sms/teste', { canal: 'email', para: 'x@exemplo.pt' }, { todo: 'BUG: sms/teste sem SMTP configurado responde 500 em vez de 400' });
+ep('todos', 'POST', 'sms/preparar', {}); ep('todos', 'GET', 'sms/historico'); ep('todos', 'GET', 'sms/estado'); ep('todos', 'POST', 'sms/marcar-enviado', {});
+ep('admin', 'POST', 'sms/teste', { canal: 'email', para: 'x@exemplo.pt' });
 ep('todos', 'GET', 'dashboard'); ep('todos', 'GET', `anexos/${N}/ficheiro`);
 ep('admin', 'GET', 'logs'); ep('admin', 'GET', 'backup');
 
@@ -116,7 +116,7 @@ for (const e of E) {
   });
 }
 
-test('PUT t/<tabela>/<id inexistente> responde 404', { todo: 'BUG: crud() devolve undefined → o servidor nunca responde e o pedido fica pendurado' }, async () => {
+test('PUT t/<tabela>/<id inexistente> responde 404', async () => {
   for (const t of ['pacientes', 'especialidades']) assert.equal((await pedido('PUT', `/api/t/${t}/${N}`, { ck: ck.admin, corpo: { nome: 'x' } })).status, 404, t);
 });
 
@@ -157,10 +157,77 @@ test('o servidor continua a responder depois de um corpo gigante', async () => {
   assert.equal((await pedido('GET', '/api/me', { ck: ck.admin })).status, 200);
 });
 
-test('parâmetros numéricos inválidos não dão erro 500 (nem expõem SQL)', { todo: 'BUG: servicos-frequentes?medico_id=abc e pacientes?limit=Infinity → 500 "Erro interno: no such column…" (SQL concatenado)' }, async () => {
-  for (const u of ['servicos-frequentes?medico_id=abc', 'pacientes?limit=Infinity', 'pacientes?limit=1e999']) {
+test('parâmetros numéricos inválidos não dão erro 500 (nem expõem SQL)', async () => {
+  for (const u of ['servicos-frequentes?medico_id=abc', 'servicos-frequentes?medico_id=1%20OR%201', 'pacientes?limit=Infinity', 'pacientes?limit=1e999', 'pacientes?limit=-1', 'pacientes?limit=abc']) {
     const r = await pedido('GET', '/api/' + u, { ck: ck.admin });
     assert.ok(r.status < 500, `${u}: ${r.status} ${r.texto.slice(0, 100)}`);
+    assert.doesNotMatch(r.texto, /SQL|no such|column/i, u);
+  }
+});
+
+test('pacientes?limit fica entre 1 e 1000', async () => {
+  D.tx(() => { for (let i = 0; i < 1001; i++) D.run('INSERT INTO pacientes (numero, nome, ativo) VALUES (?,?,1)', 500000 + i, 'Limite ' + i); });
+  const n = async l => JSON.parse((await pedido('GET', '/api/pacientes?limit=' + l, { ck: ck.admin })).texto).length;
+  assert.equal(await n(-1), 1);
+  assert.equal(await n(2), 2);
+  assert.equal(await n('abc'), 200); // por omissão
+  assert.equal(await n(100000), 1000);
+  assert.equal(await n('Infinity'), 1000);
+});
+
+test('erro 500 não expõe detalhes internos (só no console)', async () => {
+  const orig = D.getConfig, err = console.error; const vistos = [];
+  D.getConfig = () => { throw new Error('detalhe-secreto /caminho/clinica.db'); };
+  console.error = (...a) => vistos.push(a.map(String).join(' '));
+  try {
+    const r = await pedido('GET', '/api/config', { ck: ck.admin });
+    assert.equal(r.status, 500);
+    assert.equal(JSON.parse(r.texto).erro, 'Erro interno');
+  } finally { D.getConfig = orig; console.error = err; }
+  assert.ok(vistos.some(v => v.includes('detalhe-secreto')));
+});
+
+// ---------- listagem de ocupação ----------
+test('listagens/ocupacao e agenda/confirmar recusam intervalos acima de 1 ano (400)', async () => {
+  for (const t of ['ocupacao', 'agenda', 'confirmar']) {
+    for (const [de, ate] of [['2024-01-01', '2025-12-31'], ['1900-01-01', '2100-12-31'], ['abc', '2025-01-01']]) {
+      const r = await pedido('GET', `/api/listagens/${t}?de=${de}&ate=${ate}`, { ck: ck.medico });
+      assert.equal(r.status, 400, `${t} ${de}..${ate}: ${r.status}`);
+    }
+    assert.equal((await pedido('GET', `/api/listagens/${t}?de=2025-01-01&ate=2025-12-31`, { ck: ck.medico })).status, 200, t);
+  }
+});
+
+test('listagens/ocupacao de um mês: valores calculados à mão', async () => {
+  const cfgAntes = JSON.parse((await pedido('GET', '/api/config', { ck: ck.admin })).texto);
+  const cfg = { agenda_inicio: '08:00', agenda_fim: '20:00', agenda_dias: '1,2,3,4,5', feriado_pascoa: '1', feriado_sexta_santa: '1', feriado_carnaval: '0', feriado_corpo_deus: '0' };
+  assert.equal((await pedido('PUT', '/api/config', { ck: ck.admin, corpo: cfg })).status, 200);
+  try {
+    const md = JSON.parse((await pedido('POST', '/api/t/medicos', { ck: ck.admin, corpo: { nome: 'Dra. Ocupação', ativo: 1 } })).texto).id;
+    D.run("INSERT INTO feriados (nome, data, fixo) VALUES ('Dia da Liberdade', '04-25', 1)");
+    const est = n => D.get('SELECT id FROM estados WHERE nome=?', n)?.id ?? D.run('INSERT INTO estados (nome, categoria) VALUES (?,?)', n, { Faltou: 'FALTAS', Desmarcada: 'INATIVAS' }[n] || 'OUTRAS').lastInsertRowid;
+    const pac = JSON.parse((await pedido('POST', '/api/t/pacientes', { ck: ck.admin, corpo: { nome: 'Paciente Ocupação' } })).texto).id;
+    const marc = (i, f, e) => D.run('INSERT INTO marcacoes (paciente_id, medico_id, inicio, fim, estado_id) VALUES (?,?,?,?,?)', pac, md, i, f, est(e));
+    marc('2030-04-02T09:00', '2030-04-02T10:00', 'Marcada');     // 60
+    marc('2030-04-02T10:00', '2030-04-02T10:30', 'Faltou');      // faltas não contam
+    marc('2030-04-03T14:00', '2030-04-03T14:45', 'Confirmada');  // 45
+    marc('2030-04-03T15:00', '2030-04-03T15:30', 'Desmarcada');  // inativas não contam
+    marc('2030-04-06T09:00', '2030-04-06T09:30', 'Marcada');     // sábado (fora dos dias de agenda)
+    marc('2030-04-25T09:00', '2030-04-25T10:00', 'Marcada');     // feriado fixo
+    marc('2030-04-19T09:00', '2030-04-19T10:00', 'Marcada');     // Sexta-feira Santa 2030
+    marc('2030-04-30T19:30', '2030-04-30T20:00', 'Marcada');     // 30, último dia
+    marc('2030-03-29T09:00', '2030-03-29T10:00', 'Marcada');     // fora do intervalo
+    marc('2030-05-01T09:00', '2030-05-01T10:00', 'Marcada');     // fora do intervalo
+    const bl = (i, f) => D.run("INSERT INTO bloqueios (medico_id, inicio, fim, tipo) VALUES (?,?,?,'ausencia')", md, i, f);
+    bl('2030-04-03T08:00', '2030-04-03T12:00'); // 240
+    bl('2030-04-10T18:00', '2030-04-10T22:00'); // 120 (corta às 20:00)
+    bl('2030-04-15T00:00', '2030-04-16T23:59'); // 2 × 720
+    const r = await pedido('GET', `/api/listagens/ocupacao?de=2030-04-01&ate=2030-04-30&medico_id=${md}`, { ck: ck.rececao });
+    assert.equal(r.status, 200, r.texto);
+    // abril 2030: 22 dias úteis − 19/4 (Sexta Santa) − 25/4 = 20 dias × 12 h = 240 h; bloqueado 1800 min = 30 h
+    assert.deepEqual(JSON.parse(r.texto).rows, [{ medico_nome: 'Dra. Ocupação', marcacoes: 3, horas_disp: 210, horas_ocup: 2.25, taxa: 1.07 }]);
+  } finally {
+    await pedido('PUT', '/api/config', { ck: ck.admin, corpo: Object.fromEntries(Object.keys(cfg).map(k => [k, cfgAntes[k]])) });
   }
 });
 
@@ -179,7 +246,7 @@ for (const p of TRAVESSIAS) test(`path traversal não expõe ficheiros: ${p}`, a
   assert.ok(!/root:x:0/.test(r.texto || ''));
   assert.ok(r.status > 0 && r.status < 500, `${p} → ${r.status}`);
 });
-test('path traversal com byte nulo → 4xx, nunca 500', { todo: 'BUG: /index.html%00 → fs.readFile lança ERR_INVALID_ARG_VALUE → 500 "Erro interno: …"' }, async () => {
+test('path traversal com byte nulo → 4xx, nunca 500', async () => {
   for (const p of ['/%00', '/index.html%00.js', '/..%00/server.js']) {
     const r = await pedido('GET', p);
     assert.ok(r.status >= 400 && r.status < 500, `${p} → ${r.status} ${r.texto}`);

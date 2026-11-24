@@ -151,6 +151,7 @@ function crud(method, table, id, query, body, user) {
   }
   if (!id) throw new HttpError(400, 'Falta o id');
   if (method === 'PUT') {
+    if (!get(`SELECT 1 FROM ${table} WHERE id=?`, id)) throw new HttpError(404, 'Não encontrado');
     const o = pick(body, def.cols);
     if (table === 'pacientes') {
       if ('nif' in o) validarNif(o.nif);
@@ -572,7 +573,7 @@ function contextoMarcacao(m, cfg) {
 
 // canais: ['sms','email']; enviar=false apenas prepara (para copiar/abrir no telemóvel)
 async function enviarMensagens(body, user) {
-  const modelo = get('SELECT * FROM sms_modelos WHERE id=?', body.modelo_id);
+  const modelo = get('SELECT * FROM sms_modelos WHERE id=?', Number(body.modelo_id) || 0);
   if (!modelo) throw new HttpError(400, 'Escolha um modelo de mensagem');
   const cfg = D.getConfig();
   const canais = (body.canais && body.canais.length ? body.canais : ['sms']).filter(c => c === 'sms' || c === 'email');
@@ -663,6 +664,8 @@ async function backup(res) {
 function listagem(tipo, q) {
   const de = q.get('de') || today().slice(0, 8) + '01', ate = q.get('ate') || today(), ateF = ate + 'T23:59';
   const f = k => q.get(k) || null;
+  // listagens que percorrem todos os dias/marcações: o node:sqlite é síncrono e um intervalo enorme prende todos os postos
+  const ateUmAno = () => { if (!((Date.parse(ate) - Date.parse(de)) / 864e5 <= 366)) throw new HttpError(400, 'Escolha um intervalo de datas válido, até 1 ano'); };
   const M = 'money', D_ = 'date', DT = 'dt', N = 'num';
   const filtro = (where, params, col, key) => { if (f(key)) { where.push(`${col} = ?`); params.push(f(key)); } };
   const AG = `SELECT m.*, p.nome paciente_nome, p.numero paciente_numero, p.telemovel, md.nome medico_nome, s.nome servico_nome, e.nome estado_nome,
@@ -673,6 +676,7 @@ function listagem(tipo, q) {
     { k: 'medico_nome', h: 'Médico' }, { k: 'servico_nome', h: 'Serviço' }, { k: 'gabinete_nome', h: 'Gabinete' }, { k: 'estado_nome', h: 'Estado' }];
   switch (tipo) {
     case 'agenda': {
+      ateUmAno();
       const por = f('por') || 'medico';
       const where = ['m.inicio BETWEEN ? AND ?']; const params = [de, ateF];
       filtro(where, params, 'm.medico_id', 'medico_id'); filtro(where, params, 'p.entidade_id', 'entidade_id');
@@ -684,6 +688,7 @@ function listagem(tipo, q) {
         cols: [...agCols, { k: 'entidade_nome', h: 'Entidade' }, { k: 'criado_por_nome', h: 'Marcado por' }], rows };
     }
     case 'confirmar': {
+      ateUmAno();
       const rows = all(`${AG} WHERE m.inicio BETWEEN ? AND ? AND e.nome IN ('Marcada','A Confirmar') ORDER BY m.inicio`, de, ateF);
       return { titulo: 'Consultas por confirmar', cols: agCols, rows };
     }
@@ -699,18 +704,27 @@ function listagem(tipo, q) {
       const cfg = D.getConfig(); const toM = h => { const [a, b] = h.split(':').map(Number); return a * 60 + b; };
       const aberto = toM(cfg.agenda_fim || '20:00') - toM(cfg.agenda_inicio || '08:00');
       const dias = (cfg.agenda_dias || '1,2,3,4,5').split(',').map(Number);
+      ateUmAno();
       const meds = all('SELECT id, nome FROM medicos WHERE ativo=1 ORDER BY nome').filter(m => !f('medico_id') || String(m.id) === f('medico_id'));
+      // uma consulta para todo o intervalo (antes: duas por dia e por médico)
+      const blAll = all('SELECT medico_id, inicio, fim FROM bloqueios WHERE inicio <= ? AND fim >= ?', ateF, de + 'T00:00');
+      const mmPor = new Map();
+      for (const m of all(`SELECT medico_id, inicio, fim FROM marcacoes WHERE inicio >= ? AND inicio < date(?, '+1 day')
+          AND estado_id NOT IN (SELECT id FROM estados WHERE categoria IN ('INATIVAS','FALTAS'))`, de, ate)) {
+        const k = m.medico_id + '|' + m.inicio.slice(0, 10); if (!mmPor.has(k)) mmPor.set(k, []); mmPor.get(k).push(m);
+      }
+      const fer = {}; const feriado = (ano, dia) => (fer[ano] ||= new Set(feriadosAno(ano).map(x => x.data))).has(dia);
       const rows = [];
       for (const md of meds) {
         let minDisp = 0, minOcup = 0, n = 0;
         for (let d = new Date(de + 'T12:00:00'); d <= new Date(ate + 'T12:00:00'); d.setDate(d.getDate() + 1)) {
           const dia = d.toISOString().slice(0, 10);
-          if (!dias.includes(d.getDay()) || feriadosAno(d.getFullYear()).some(x => x.data === dia)) continue;
-          const bl = all('SELECT inicio, fim FROM bloqueios WHERE (medico_id=? OR medico_id IS NULL) AND inicio <= ? AND fim >= ?', md.id, dia + 'T23:59', dia + 'T00:00');
+          if (!dias.includes(d.getDay()) || feriado(d.getFullYear(), dia)) continue;
+          const bl = blAll.filter(b => (b.medico_id === md.id || b.medico_id == null) && b.inicio <= dia + 'T23:59' && b.fim >= dia + 'T00:00');
           const abre = `${dia}T${cfg.agenda_inicio || '08:00'}`, fecha = `${dia}T${cfg.agenda_fim || '20:00'}`;
           const blMin = bl.reduce((a, b) => { const s0 = b.inicio > abre ? b.inicio : abre, e0 = b.fim < fecha ? b.fim : fecha; return a + Math.max(0, (new Date(e0) - new Date(s0)) / 60000); }, 0);
           minDisp += Math.max(0, aberto - blMin);
-          const mm = all(`SELECT inicio, fim FROM marcacoes WHERE medico_id=? AND inicio LIKE ? AND estado_id NOT IN (SELECT id FROM estados WHERE categoria IN ('INATIVAS','FALTAS'))`, md.id, dia + '%');
+          const mm = mmPor.get(md.id + '|' + dia) || [];
           n += mm.length; minOcup += mm.reduce((a, m) => a + (new Date(m.fim) - new Date(m.inicio)) / 60000, 0);
         }
         rows.push({ medico_nome: md.nome, marcacoes: n, horas_disp: r2(minDisp / 60), horas_ocup: r2(minOcup / 60), taxa: minDisp ? r2(minOcup * 100 / minDisp) : 0 });
@@ -851,9 +865,12 @@ async function api(req, res, url) {
       for (const [k, v] of Object.entries(body)) if (!(SEGREDOS.includes(k) && v === MASCARA)) run('INSERT INTO config VALUES (?,?) ON CONFLICT(chave) DO UPDATE SET valor=excluded.valor', k, v == null ? '' : String(v));
       D.log(user.id, 'alterar configuração', Object.keys(body).join(','));
       return cfgPublica();
-    case 'servicos-frequentes':
+    case 'servicos-frequentes': {
+      const mid = q.get('medico_id') ? Number(q.get('medico_id')) : null;
+      if (mid !== null && !Number.isInteger(mid)) throw new HttpError(400, 'medico_id inválido');
       return all(`SELECT servico_id, COUNT(*) n FROM tratamentos WHERE servico_id IS NOT NULL AND criado_em >= date('now','-365 days')
-        ${q.get('medico_id') ? 'AND medico_id=' + Number(q.get('medico_id')) : ''} GROUP BY servico_id ORDER BY n DESC LIMIT 12`);
+        ${mid !== null ? 'AND medico_id=?' : ''} GROUP BY servico_id ORDER BY n DESC LIMIT 12`, ...(mid !== null ? [mid] : []));
+    }
     case 'lookups': // dados de referência para a interface
       return {
         medicos: all('SELECT * FROM medicos ORDER BY nome'), gabinetes: all('SELECT * FROM gabinetes ORDER BY nome'),
@@ -908,7 +925,7 @@ async function api(req, res, url) {
         if (q.get('ativos') !== '0') where.push('p.ativo=1');
         return all(`SELECT p.id, p.numero, p.nome, p.nif, p.telemovel, p.telefone, p.email, p.data_nasc, p.localidade, p.ativo, md.nome medico_nome, e.nome entidade_nome
           FROM pacientes p LEFT JOIN medicos md ON md.id=p.medico_id LEFT JOIN entidades e ON e.id=p.entidade_id
-          ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ORDER BY p.nome LIMIT ${Number(q.get('limit')) || 200}`, ...params);
+          ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ORDER BY p.nome LIMIT ${Math.min(1000, Math.max(1, Math.trunc(Number(q.get('limit'))) || 200))}`, ...params);
       }
       if (m === 'GET' && id && r2_ === 'resumo') {
         const p = get(`SELECT p.*, md.nome medico_nome, e.nome entidade_nome, r.descricao razao_nome FROM pacientes p LEFT JOIN medicos md ON md.id=p.medico_id
@@ -1125,8 +1142,11 @@ async function api(req, res, url) {
       if (r1 === 'teste' && m === 'POST') {
         requireAdmin(user);
         const cfg = D.getConfig();
-        if (body.canal === 'email') await COM.enviarEmail(cfg, { para: body.para, assunto: 'Teste de e-mail — ' + (cfg.clinica_nome || 'Clínica'), texto: 'Se recebeu esta mensagem, o envio de e-mail está a funcionar.' });
-        else await COM.enviarSMS(cfg, { para: body.para, texto: 'Teste de SMS — ' + (cfg.clinica_nome || 'Clínica') });
+        if (!(body.canal === 'email' ? emailConfigurado(cfg) : smsConfigurado(cfg))) throw new HttpError(400, `Configure primeiro o envio de ${body.canal === 'email' ? 'e-mail (SMTP)' : 'SMS'}`);
+        try {
+          if (body.canal === 'email') await COM.enviarEmail(cfg, { para: body.para, assunto: 'Teste de e-mail — ' + (cfg.clinica_nome || 'Clínica'), texto: 'Se recebeu esta mensagem, o envio de e-mail está a funcionar.' });
+          else await COM.enviarSMS(cfg, { para: body.para, texto: 'Teste de SMS — ' + (cfg.clinica_nome || 'Clínica') });
+        } catch (e) { throw new HttpError(502, 'O envio falhou: ' + e.message); } // o admin precisa do motivo para corrigir a configuração
         return { ok: true };
       }
       if (r1 === 'estado') { const c = D.getConfig(); return { email: emailConfigurado(c), sms: smsConfigurado(c) }; }
@@ -1162,6 +1182,7 @@ const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; cha
 function serveStatic(req, res, url) {
   let p; try { p = decodeURIComponent(url.pathname); } catch { throw new HttpError(400, 'Endereço inválido'); }
   if (p === '/') p = '/index.html';
+  if (p.includes('\0')) throw new HttpError(404, 'Não encontrado');
   const file = path.normalize(path.join(PUBLIC, p));
   if (!file.startsWith(PUBLIC)) { res.writeHead(403); return res.end(); }
   fs.readFile(file, (err, data) => {
@@ -1180,9 +1201,12 @@ const server = http.createServer(async (req, res) => {
   } catch (e) {
     const status = e.status || (e.code === 'ERR_INVALID_URL' ? 400 : 500);
     if (status === 500) console.error(e);
-    if (!res.headersSent) send(res, status, { erro: status === 500 ? 'Erro interno: ' + e.message : e.message });
+    if (!res.headersSent) send(res, status, { erro: status === 500 ? 'Erro interno' : e.message });
   }
 });
+
+// rede local: cabeçalhos em 20 s (slowloris); 120 s para o pedido inteiro (anexos de 20 MB em Wi-Fi lento)
+Object.assign(server, { headersTimeout: 20000, requestTimeout: 120000, keepAliveTimeout: 5000 });
 
 if (require.main === module) {
   setInterval(lembretesAutomaticos, 5 * 60 * 1000);
