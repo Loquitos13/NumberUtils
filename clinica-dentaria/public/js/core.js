@@ -149,7 +149,7 @@ function confirmDlg(msg, okLabel = 'Confirmar', danger = false) {
 }
 function promptDlg(title, label, value = '') {
   return new Promise(res => {
-    modal({ title, size: 'sm', body: `<div class="field"><label class="f">${esc(label)}</label><input id="pd" value="${esc(value)}"></div>`,
+    modal({ title, size: 'sm', semCtrlS: true, body: `<div class="field"><label class="f">${esc(label)}</label><input id="pd" value="${esc(value)}"></div>`,
       buttons: [{ label: 'Cancelar', onClick: () => res(null) }, { label: 'OK', cls: 'primary', onClick: c => res($('#pd', c.body).value) }] });
   });
 }
