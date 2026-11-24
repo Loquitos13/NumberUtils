@@ -19,7 +19,9 @@ const PUBLIC = path.join(__dirname, 'public');
 
 // ---------- utilitários ----------
 class HttpError extends Error { constructor(status, msg) { super(msg); this.status = status; } }
-const r2 = n => Math.round((Number(n) || 0) * 100) / 100;
+// arredonda ao cêntimo, meio cêntimo para longe do zero (também em NC/saldos negativos);
+// toPrecision(15) limpa o erro binário (0.575*100 = 57.4999… → 57.5) sem depender da magnitude
+const r2 = n => { const v = Number(n) || 0; return Math.sign(v) * Math.round(Number((Math.abs(v) * 100).toPrecision(15))) / 100 || 0; };
 const agora = () => { const d = new Date(); return `${today()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; };
 const today = () => {
   const d = new Date();
@@ -492,7 +494,8 @@ function aceitarOrcamento(id, user) {
     run("UPDATE orcamentos SET estado='aceite' WHERE id=?", id);
     for (const l of o.linhas) {
       // linha criada a partir de um tratamento já planeado: liga-o ao orçamento em vez de duplicar
-      const t = l.tratamento_id && get('SELECT id FROM tratamentos WHERE id=? AND paciente_id=? AND documento_id IS NULL', l.tratamento_id, o.paciente_id);
+      const t = l.tratamento_id && get('SELECT id, documento_id FROM tratamentos WHERE id=? AND paciente_id=?', l.tratamento_id, o.paciente_id);
+      if (t && t.documento_id) continue; // já faturado: não volta a planear
       if (t) { run('UPDATE tratamentos SET orcamento_id=?, preco=?, desconto_pct=?, iva=? WHERE id=?', id, l.preco, l.desconto_pct, l.iva, t.id); continue; }
       const n = Math.max(1, Math.round(l.qtd));
       for (let i = 0; i < n; i++) insert('tratamentos', { paciente_id: o.paciente_id, medico_id: o.medico_id, servico_id: l.servico_id, descricao: l.descricao,
@@ -664,7 +667,8 @@ function listagem(tipo, q) {
   const de = q.get('de') || today().slice(0, 8) + '01', ate = q.get('ate') || today(), ateF = ate + 'T23:59';
   const f = k => q.get(k) || null;
   const M = 'money', D_ = 'date', DT = 'dt', N = 'num';
-  const filtro = (where, params, col, key) => { if (f(key)) { where.push(`${col} = ?`); params.push(f(key)); } };
+  // ids vêm da query como texto: passa-os a número (uma expressão como COALESCE não tem afinidade e '3' ≠ 3)
+  const filtro = (where, params, col, key) => { if (f(key)) { where.push(`${col} = ?`); params.push(key.endsWith('_id') ? Number(f(key)) : f(key)); } };
   const AG = `SELECT m.*, p.nome paciente_nome, p.numero paciente_numero, p.telemovel, md.nome medico_nome, s.nome servico_nome, e.nome estado_nome,
     e.categoria, en.nome entidade_nome, u.nome criado_por_nome, g.nome gabinete_nome FROM marcacoes m JOIN pacientes p ON p.id=m.paciente_id
     LEFT JOIN medicos md ON md.id=m.medico_id LEFT JOIN servicos s ON s.id=m.servico_id LEFT JOIN estados e ON e.id=m.estado_id
@@ -740,7 +744,7 @@ function listagem(tipo, q) {
     }
     case 'comissoes': {
       const where = ["d.estado='emitido'", `d.tipo IN ${SQL_FAT}`, 'd.data BETWEEN ? AND ?']; const params = [de, ate];
-      if (f('medico_id')) { where.push('COALESCE(t.medico_id, d.medico_id) = ?'); params.push(f('medico_id')); }
+      if (f('medico_id')) { where.push('COALESCE(t.medico_id, d.medico_id) = ?'); params.push(Number(f('medico_id'))); }
       const rows = all(`SELECT d.data, d.numero, p.nome paciente_nome, l.descricao, COALESCE(md.nome,'(sem médico)') medico_nome, COALESCE(md.comissao_pct,0) pct,
         ROUND(CASE WHEN d.tipo='NC' THEN -l.total ELSE l.total END, 2) valor FROM documento_linhas l JOIN documentos d ON d.id=l.documento_id
         LEFT JOIN pacientes p ON p.id=d.paciente_id LEFT JOIN tratamentos t ON t.id=l.tratamento_id LEFT JOIN medicos md ON md.id=COALESCE(t.medico_id, d.medico_id)
@@ -1196,4 +1200,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { lembretesAutomaticos, enviarMensagens, server, feriadosAno, pascoa };
+module.exports = { lembretesAutomaticos, enviarMensagens, server, feriadosAno, pascoa, r2 };

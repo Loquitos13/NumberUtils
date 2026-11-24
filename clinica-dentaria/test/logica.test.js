@@ -10,7 +10,7 @@ const path = require('node:path');
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'clinica-teste-'));
 process.env.DATA_DIR = dir;
 process.env.ADMIN_PASSWORD = 'segredo-de-teste';
-const { server } = require('../server');
+const { server, r2 } = require('../server');
 const D = require('../db');
 
 let base, cookie = '', ckRec = '', recId;
@@ -85,11 +85,31 @@ test('arredondamento ao cêntimo: 3 linhas de 33,333 € vs. 1 linha com qtd 3',
   assert.equal(await saldo(p), 0);
 });
 
-test('IVA a meio cêntimo arredonda para cima (2,50 € a 23% = 0,575 → 0,58)', { todo: 'BUG: r2() usa Math.round sobre float: 2.5*23/100=0.57499… dá 0,57' }, async () => {
+test('IVA a meio cêntimo arredonda para cima (2,50 € a 23% = 0,575 → 0,58)', async () => {
   const p = await paciente('Meio Cêntimo');
   const d = await okDoc('FT', p, [{ descricao: 'Fio dentário', preco: 2.5, iva: 23 }, { descricao: 'Escova', preco: 4.5, iva: 23 }]);
   assert.deepEqual(d.linhas.map(l => l.total), [3.08, 5.54]); // 0,575 → 0,58 e 1,035 → 1,04
   assert.equal(d.total_iva, 1.62);
+});
+
+test('r2: meio cêntimo afasta-se do zero, também em negativos (NC, saldos)', () => {
+  assert.equal(r2(1.005), 1.01);
+  assert.equal(r2(-1.005), -1.01);
+  assert.equal(r2(0.575), 0.58);
+  assert.equal(r2(-0.575), -0.58);
+  assert.equal(r2(1.035), 1.04);
+  assert.equal(r2(1234567.885), 1234567.89);
+  assert.equal(r2(1.004), 1);
+  assert.equal(r2(-1.004), -1);
+  assert.equal(r2(-0.001), 0);
+  assert.ok(Object.is(r2(-0.001), 0)); // sem -0 nos documentos
+  assert.equal(r2('abc'), 0);
+});
+
+test('fatura 1,005 € isento arredonda para 1,01 €', async () => {
+  const p = await paciente('Um e Meio Cêntimo');
+  const d = await okDoc('FR', p, [L(1.005)]);
+  assert.deepEqual([d.linhas[0].total, d.total], [1.01, 1.01]);
 });
 
 test('IVA a 0% leva o motivo de isenção M07; taxas positivas não levam motivo', async () => {
@@ -208,8 +228,7 @@ test('orçamento aceite: liga o tratamento planeado e cria os restantes, sem dup
   assert.equal((await ok('GET', `pacientes/${p}/resumo`)).por_realizar, 900);
 });
 
-test('orçamento aceite depois de o tratamento ter sido faturado não o volta a criar',
-  { todo: 'BUG: aceitarOrcamento insere um tratamento novo quando o da linha já tem documento_id' }, async () => {
+test('orçamento aceite depois de o tratamento ter sido faturado não o volta a criar', async () => {
     const p = await paciente('Orçamento Faturado');
     const t = (await ok('POST', 't/tratamentos', { paciente_id: p, descricao: 'Extração', preco: 50 })).id;
     const o = await ok('POST', 'orcamentos', { paciente_id: p, linhas: [{ tratamento_id: t, descricao: 'Extração', preco: 50 }] });
@@ -258,10 +277,31 @@ test('comissões por médico: % sobre o faturado, notas de crédito descontam', 
     [['Dr. Comissão', 150, 60], ['Dra. Documento', 80, 20]]);
 });
 
-test('listagem de comissões filtrada por médico', { todo: 'BUG: COALESCE(t.medico_id, d.medico_id) = ? compara inteiro com texto da query: devolve sempre vazio' }, async () => {
+test('listagem de comissões filtrada por médico', async () => {
   const mc = (await ok('GET', 'lookups')).medicos.find(m => m.nome === 'Dr. Comissão').id;
   const rows = (await ok('GET', `listagens/comissoes?de=${hoje()}&ate=${hoje()}&medico_id=${mc}`)).rows;
   assert.deepEqual(rows.map(r => [r.valor, r.comissao]), [[200, 80], [-50, -20]]);
+});
+
+test('filtros por id de todas as listagens comparam como número', async () => {
+  const mx = (await ok('POST', 't/medicos', { nome: 'Dr. Filtro', comissao_pct: 10 })).id;
+  const ent = (await ok('GET', 'lookups')).entidades.find(e => e.nome === 'Médis').id;
+  const p = await paciente('Filtrado', { entidade_id: ent });
+  const dia = '2031-03-18';
+  await ok('POST', 'marcacoes', { paciente_id: p, medico_id: mx, inicio: dia + 'T10:00', fim: dia + 'T10:30' });
+  const t = (await ok('POST', 't/tratamentos', { paciente_id: p, medico_id: mx, descricao: 'Filtro', preco: 30, estado: 'realizado', data: dia })).id;
+  await okDoc('FR', p, [{ tratamento_id: t, descricao: 'Filtro', preco: 30, iva: 0 }], { medico_id: mx, data: hoje() });
+  await ok('POST', 'orcamentos', { paciente_id: p, medico_id: mx, data: hoje(), linhas: [L(10)] });
+  const casos = [
+    ['agenda', dia, 'medico_id', mx], ['agenda', dia, 'entidade_id', ent], ['agenda', dia, 'user_id', 1], ['agenda', dia, 'paciente_id', p],
+    ['caixa', hoje(), 'medico_id', mx], ['caixa', hoje(), 'user_id', 1], ['comissoes', hoje(), 'medico_id', mx], ['producao', dia, 'medico_id', mx],
+    ['orcamentos', hoje(), 'medico_id', mx], ['movimentos', hoje(), 'medico_id', mx], ['movimentos', hoje(), 'user_id', 1], ['movimentos', hoje(), 'paciente_id', p],
+  ];
+  for (const [tipo, d, k, v] of casos) {
+    const nossas = async id => (await ok('GET', `listagens/${tipo}?de=${d}&ate=${d}&${k}=${id}`)).rows.filter(r => r.paciente_nome === 'Filtrado').length;
+    assert.ok(await nossas(v) > 0, `${tipo} ${k}=${v}`);
+    assert.equal(await nossas(999999), 0, `${tipo} ${k}=999999`);
+  }
 });
 
 // ---------- mapa de caixa ----------
@@ -299,9 +339,13 @@ test('NIF: dígito de controlo (incl. 5xx e 9xx)', async () => {
   assert.equal((await api('PUT', `t/pacientes/${p}`, { nif: '' })).status, 200); // vazio é permitido
 });
 
-test('NIF com primeiro dígito inexistente (0 ou 4) é recusado', { todo: 'BUG: validarNif só confere o dígito de controlo; 000000000 e 400000008 passam' }, () => {
+test('NIF com primeiro dígito inexistente (0 ou 4) é recusado', () => {
   assert.throws(() => D.validarNif('000000000'));
   assert.throws(() => D.validarNif('400000008'));
+  // dígito de controlo certo, prefixo não atribuído pela AT
+  for (const nif of ['440000009', '730000001', '760000000', '920000002', '970000006']) assert.throws(() => D.validarNif(nif), /não atribuídos/, nif);
+  for (const nif of ['300000006', '450000001', '600000001', '700000003', '740000004', '780000005', '800000005', '900000007', '910000000'])
+    assert.doesNotThrow(() => D.validarNif(nif), nif);
 });
 
 // ---------- stocks ----------

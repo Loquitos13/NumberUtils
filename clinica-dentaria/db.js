@@ -436,6 +436,11 @@ function validarNif(nif) {
   const s = String(nif).replace(/\s/g, '');
   const erro = msg => Object.assign(new Error(msg), { status: 400 });
   if (!/^\d{9}$/.test(s)) throw erro('NIF inválido: deve ter 9 dígitos');
+  // prefixos atribuídos pela AT (Portal das Finanças / Wikipédia pt "Número de identificação fiscal"): 1-3 singular,
+  // 45 singular não residente, 5 coletiva, 6 adm. pública, 70/74/75 herança indivisa, 71 coletiva não residente, 72 fundos,
+  // 77 atribuição oficiosa, 78 não residente (VAT Refund), 79 regime excecional (Expo 98), 8 empresário individual (extinto),
+  // 90/91 condomínios e sociedades irregulares, 98 não residente sem estabelecimento estável, 99 sociedade civil sem personalidade jurídica
+  if (!/^(?:[123568]|45|7[0-2457-9]|9[0189])/.test(s)) throw erro('NIF inválido: começa por dígitos não atribuídos');
   if (nifValido(s.slice(0, 8)) !== s) throw erro('NIF inválido: dígito de controlo incorreto');
 }
 
