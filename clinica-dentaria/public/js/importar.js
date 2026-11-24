@@ -23,6 +23,13 @@ const IMP_CAMPOS = [
   ['telefone_emergencia', 'Telefone de emergência', ['telefoneemergencia']],
   ['id_externo', 'ID externo', ['id', 'idexterno']],
   ['notas', 'Notas', ['notas', 'observacoes', 'obs']],
+  // por nome: o servidor procura na tabela (os *_id só pela API)
+  ['entidade', 'Entidade/seguro (nome)', ['entidade', 'seguro', 'seguradora', 'subsistema']],
+  ['medico', 'Médico (nome)', ['medico', 'medicoassistente', 'dentista']],
+  ['rgpd_consent', 'Consentimento RGPD', ['rgpd', 'consentimentorgpd', 'consentimento']],
+  ['sms_ok', 'Aceita SMS', ['sms', 'aceitasms', 'smsconsent']],
+  ['email_ok', 'Aceita e-mail', ['emailconsent', 'aceitaemail', 'consentimentoemail']],
+  ['ativo', 'Ativo', ['ativo', 'activo']],
 ];
 const impNorm = s => String(s).normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]/g, '');
 const impSugestao = h => (IMP_CAMPOS.find(c => c[2].includes(impNorm(h))) || [''])[0];
