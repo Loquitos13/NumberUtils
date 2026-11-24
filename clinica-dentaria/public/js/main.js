@@ -52,8 +52,27 @@ $('#btn-pass').onclick = () => modal({ title: 'Alterar palavra-passe', size: 'sm
 $('#btn-new-marc').onclick = () => openMarcacao({});
 $('#btn-new-pac').onclick = () => editPaciente(null, p => go('#/paciente/' + p.id));
 patientPicker($('#global-search'), p => { $('#global-search').value = ''; go('#/paciente/' + p.id); });
+const visivel = el => el && el.getClientRects().length && !el.disabled;
+// botão de guardar: o principal do modal de cima, ou o [data-save] / "Guardar…" principal da página
+function botaoGuardar() {
+  const m = $$('.modal-bg').pop();
+  if (m) return [...$$('[data-save]', m), ...$$('footer button.primary', m).reverse()].find(visivel);
+  const view = $('#view'), form = document.activeElement && document.activeElement.closest('#view form');
+  return [...$$('[data-save]', view), ...(form ? $$('button.primary', form) : []),
+    ...$$('button.primary', view).filter(b => /^guardar/i.test(b.textContent.trim()))].find(visivel);
+}
 document.addEventListener('keydown', e => {
-  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); $('#global-search').focus(); }
+  if ($('#app').classList.contains('hidden')) return;
+  const mod = e.ctrlKey || e.metaKey;
+  if (mod && e.key.toLowerCase() === 'k') { e.preventDefault(); $('#global-search').focus(); }
+  else if (e.altKey && !mod && e.code === 'KeyN') { e.preventDefault(); if (!$('.modal-bg')) openMarcacao({}); }
+  else if (mod && !e.altKey && e.key.toLowerCase() === 's') {
+    e.preventDefault();
+    const b = botaoGuardar(); if (!b) return;
+    const a = document.activeElement;
+    if (a && a.matches('input, select, textarea')) a.blur(); // dispara o change do campo que está a ser editado
+    b.click();
+  }
 });
 
 (async () => {
