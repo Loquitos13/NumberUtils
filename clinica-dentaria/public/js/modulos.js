@@ -6,7 +6,8 @@ route('inicio', async (view) => {
   const d = await GET('dashboard');
   const hoje = d.hoje;
   const ativas = hoje.filter(m => !['INATIVAS', 'FALTAS'].includes(m.estado_categoria));
-  const meus = App.user.perfil === 'medico' ? hoje.filter(m => m.medico_id === App.user.medico_id) : hoje;
+  const medico = App.user.perfil === 'medico';
+  const meus = medico ? hoje.filter(m => m.medico_id === App.user.medico_id) : hoje;
   view.innerHTML = `<div class="page-head"><h1>Hoje</h1><span class="muted">${dataLonga(isoDate())}</span>
     ${d.feriado ? `<span class="badge danger">Feriado: ${esc(d.feriado.nome)}</span>` : ''}</div>
     <div class="facts">
@@ -16,19 +17,18 @@ route('inicio', async (view) => {
       <a class="fact" href="#/stocks"><div class="l">Alertas de stock</div><div class="v ${d.stock_alertas ? 'warn' : ''}">${d.stock_alertas}</div><div class="small muted">${d.orcamentos_abertos} orçamento(s) em aberto</div></a>
     </div>
     <div class="grid" style="grid-template-columns:minmax(0,2fr) minmax(0,1fr)">
-      <div class="card"><div class="row between"><h2>${App.user.perfil === 'medico' ? 'As minhas consultas de hoje' : 'Consultas de hoje'}</h2><a href="#/agenda">Abrir agenda</a></div>
-        ${table(meus, [
+      <div class="card"><div class="row between"><h2>${medico ? 'As minhas consultas de hoje' : 'Consultas de hoje'}</h2><a href="#/agenda">Abrir agenda</a></div>
+        <div class="tbl-wrap">${table(meus, [
           { h: 'Hora', cls: 'nowrap', f: m => `<b>${fmtTime(m.inicio)}</b>` }, { h: 'Paciente', f: m => `<a href="#/paciente/${m.paciente_id}">${esc(m.paciente_nome)}</a>` },
-          { h: 'Médico', cls: 'nowrap', f: m => `<span class="dot" style="background:${esc(m.medico_cor)}"></span>${esc(m.medico_nome)}` }, { h: 'Serviço', f: m => esc(m.servico_nome) },
+          ...(medico ? [] : [{ h: 'Médico', cls: 'nowrap', f: m => `<span class="dot" style="background:${esc(m.medico_cor)}"></span>${esc(m.medico_nome)}` }]), { h: 'Serviço', f: m => esc(m.servico_nome) },
           { h: 'Estado', cls: 'nowrap', f: estadoBadge },
-          { h: '', cls: 'right nowrap', f: m => estadoRapido(m) }], { onClick: m => openMarcacao({ id: m.id }), empty: 'Sem marcações para hoje' })}</div>
+          { h: '', cls: 'right nowrap', f: m => estadoRapido(m) }], { onClick: m => openMarcacao({ id: m.id }), empty: 'Sem marcações para hoje' })}</div></div>
       <div>
         <div class="card"><h3>Aniversários hoje</h3>${d.aniversarios.map(p => `<div><a href="#/paciente/${p.id}">${esc(p.nome)}</a> <span class="muted small">(${idade(p.data_nasc)} anos)</span></div>`).join('') || '<div class="muted">Nenhum</div>'}
           <div style="margin-top:8px"><a href="#/comunicacao/aniversarios">Ver aniversários</a></div></div>
         <div class="card"><h3>Atalhos</h3><div class="row">
-          <button onclick="openMarcacao({})">Nova marcação</button><button onclick="editPaciente(null, p => go('#/paciente/' + p.id))">Novo paciente</button>
-          <button onclick="emitirDocumento({onDone: () => render()})">Documento</button><button onclick="emitirRecibo({onDone: () => render()})">Recibo</button>
-          <button onclick="editOrcamento(null, {})">Orçamento</button><button onclick="lembretesAmanha()">Lembretes amanhã</button></div></div>
+          <button onclick="emitirDocumento({onDone: () => render()})">Novo documento</button><button onclick="emitirRecibo({onDone: () => render()})">Receber pagamento</button>
+          <button onclick="editOrcamento(null, {})">Novo orçamento</button><button onclick="lembretesAmanha()">Lembretes amanhã</button></div></div>
       </div></div>`;
   bindEstadoRapido(view, render);
 });
@@ -47,7 +47,7 @@ const PROT_COLS = [
 route('proteses', async (view, [filtro = 'pendentes']) => {
   const fl = [['atraso', 'Em atraso'], ['pendentes', 'Pendentes no laboratório'], ['para_enviar', 'Para enviar'], ['na_clinica', 'Na clínica (p/ prova ou entrega)'], ['entregues', 'Entregues'], ['canceladas', 'Canceladas'], ['todas', 'Todas']];
   view.innerHTML = `<div class="page-head"><h1>Próteses / Laboratório</h1><div class="spacer"></div><button id="pr-csv">Exportar</button><button class="primary" id="pr-new">Novo trabalho</button></div>
-    <div class="subnav">${fl.map(([k, l]) => `<button class="${k === filtro ? 'active' : ''}" data-f="${k}">${l}</button>`).join('')}</div><div class="card" id="pr-list"></div>`;
+    <div class="subnav">${fl.map(([k, l]) => `<button class="${k === filtro ? 'active' : ''}" ${k === filtro ? 'aria-current="page"' : ''} data-f="${k}">${l}</button>`).join('')}</div><div class="card" id="pr-list"></div>`;
   $$('.subnav button', view).forEach(b => b.onclick = () => go('#/proteses/' + b.dataset.f));
   const rows = await GET('proteses?filtro=' + filtro);
   $('#pr-list').innerHTML = table(rows, PROT_COLS, { onClick: r => editProtese(r), empty: 'Sem trabalhos nesta vista' });
@@ -98,7 +98,7 @@ const MOV_TIPOS = { entrada: 'Entrada', saida: 'Saída / consumo', 'ajuste+': 'A
 route('stocks', async (view, [sub = 'existencias']) => {
   view.innerHTML = `<div class="page-head"><h1>Stocks</h1><div class="spacer"></div>
     <button id="st-in">Entrada</button><button id="st-out">Saída</button><button id="st-tr">Transferir</button><button class="primary" id="st-prod">Novo produto</button></div>
-    <div class="subnav">${[['existencias', 'Existências'], ['movimentos', 'Movimentos'], ['produtos', 'Produtos']].map(([k, l]) => `<button class="${k === sub ? 'active' : ''}" data-s="${k}">${l}</button>`).join('')}</div><div id="st-body"></div>`;
+    <div class="subnav">${[['existencias', 'Existências'], ['movimentos', 'Movimentos'], ['produtos', 'Produtos']].map(([k, l]) => `<button class="${k === sub ? 'active' : ''}" ${k === sub ? 'aria-current="page"' : ''} data-s="${k}">${l}</button>`).join('')}</div><div id="st-body"></div>`;
   $$('.subnav button', view).forEach(b => b.onclick = () => go('#/stocks/' + b.dataset.s));
   $('#st-in').onclick = () => movimentoStock('entrada'); $('#st-out').onclick = () => movimentoStock('saida');
   $('#st-tr').onclick = () => transferirStock(); $('#st-prod').onclick = () => editProduto(null);
@@ -201,14 +201,14 @@ route('estatisticas', async (view) => {
       <div class="fact"><div class="l">Recebido</div><div class="v ok">${eur(k.recebido)}</div></div>
       <div class="fact"><div class="l">Novos pacientes</div><div class="v">${k.novos}</div><div class="small muted">Dívida total: ${eur(k.emDivida)}</div></div></div>
       <div class="grid g2">
-        <div class="card"><h3>Marcações por estado</h3>${hbars(s.porEstado, { color: r => r.cor })}</div>
-        <div class="card"><h3>Marcações por médico</h3>${table(s.porMedico, [{ h: 'Médico', f: r => `<span class="dot" style="background:${esc(r.cor)}"></span>${esc(r.nome)}` },
+        <div class="card"><h2 style="font-size:.92rem">Marcações por estado</h2>${hbars(s.porEstado, { color: r => r.cor })}</div>
+        <div class="card"><h2 style="font-size:.92rem">Marcações por médico</h2>${table(s.porMedico, [{ h: 'Médico', f: r => `<span class="dot" style="background:${esc(r.cor)}"></span>${esc(r.nome)}` },
           { h: 'Total', cls: 'right', f: r => r.n }, { h: 'Realizadas', cls: 'right', f: r => r.realizadas }, { h: 'Faltas', cls: 'right', f: r => r.faltas }], { empty: 'Sem dados' })}</div>
-        <div class="card"><h3>Faturação por médico e comissões</h3>${table(s.fatMedico, [{ h: 'Médico', f: r => esc(r.nome) }, { h: 'Faturado', cls: 'right', f: r => eur(r.total) },
+        <div class="card"><h2 style="font-size:.92rem">Faturação por médico e comissões</h2>${table(s.fatMedico, [{ h: 'Médico', f: r => esc(r.nome) }, { h: 'Faturado', cls: 'right', f: r => eur(r.total) },
           { h: '%', cls: 'right', f: r => num(r.comissao_pct || 0) + '%' }, { h: 'Comissão', cls: 'right', f: r => eur(r.comissao) }], { empty: 'Sem faturação' })}</div>
-        <div class="card"><h3>Faturação mensal</h3>${s.fatMes.length ? `<div class="vbars">${s.fatMes.map(m => `<div class="vb" title="${eur(m.total)}"><div class="small">${eur(m.total).replace(/,\d+\s/, ' ')}</div><div class="fill" style="height:${(m.total / Math.max(...s.fatMes.map(x => x.total), 1)) * 140}px"></div><div>${MESES[Number(m.mes.slice(5)) - 1].slice(0, 3)}</div></div>`).join('')}</div>` : '<div class="empty">Sem faturação</div>'}</div>
-        <div class="card"><h3>Tratamentos mais realizados</h3>${hbars(s.topServicos)}</div>
-        <div class="card"><h3>Recebimentos por método</h3>${hbars(s.recebMetodo, { label: 'metodo', value: 'total', fmt: eur })}<h3 style="margin-top:16px">Razão da 1.ª visita (novos)</h3>${hbars(s.razoes)}</div>
+        <div class="card"><h2 style="font-size:.92rem">Faturação mensal</h2>${s.fatMes.length ? `<div class="vbars">${s.fatMes.map(m => `<div class="vb" title="${eur(m.total)}"><div class="small">${eur(m.total).replace(/,\d+\s/, ' ')}</div><div class="fill" style="height:${(m.total / Math.max(...s.fatMes.map(x => x.total), 1)) * 140}px"></div><div>${MESES[Number(m.mes.slice(5)) - 1].slice(0, 3)}</div></div>`).join('')}</div>` : '<div class="empty">Sem faturação</div>'}</div>
+        <div class="card"><h2 style="font-size:.92rem">Tratamentos mais realizados</h2>${hbars(s.topServicos)}</div>
+        <div class="card"><h2 style="font-size:.92rem">Recebimentos por método</h2>${hbars(s.recebMetodo, { label: 'metodo', value: 'total', fmt: eur })}<h2 style="font-size:.92rem;margin-top:16px">Razão da 1.ª visita (novos)</h2>${hbars(s.razoes)}</div>
       </div>`;
   };
   $$('[data-pr]', view).forEach(b => b.onclick = () => {
@@ -225,7 +225,7 @@ route('estatisticas', async (view) => {
 // ---------- comunicação ----------
 route('comunicacao', async (view, [sub = 'aniversarios']) => {
   view.innerHTML = `<div class="page-head"><h1>Comunicação</h1></div>
-    <div class="subnav">${[['aniversarios', 'Aniversários'], ['faltas', 'Faltas recentes'], ['revisao', 'Sem consulta há 1 ano'], ['historico', 'Histórico de mensagens']].map(([k, l]) => `<button class="${k === sub ? 'active' : ''}" data-s="${k}">${l}</button>`).join('')}</div>
+    <div class="subnav">${[['aniversarios', 'Aniversários'], ['faltas', 'Faltas recentes'], ['revisao', 'Sem consulta há 1 ano'], ['historico', 'Histórico de mensagens']].map(([k, l]) => `<button class="${k === sub ? 'active' : ''}" ${k === sub ? 'aria-current="page"' : ''} data-s="${k}">${l}</button>`).join('')}</div>
     <div class="card" id="cm-body"></div>`;
   $$('.subnav button', view).forEach(b => b.onclick = () => go('#/comunicacao/' + b.dataset.s));
   const body = $('#cm-body');
