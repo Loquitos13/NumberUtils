@@ -244,7 +244,7 @@ async function drawAgenda() {
   const fimDrag = () => { const d = drag, alvo = d?.alvo; drag = null; if (d?.on) { d.ev.style.opacity = ''; d.ev.style.cursor = ''; pinta(d, null); } return d && { ...d, alvo }; };
   cal.addEventListener('pointerdown', e => {
     const ev = e.target.closest('.ev');
-    if (ev && e.button === 0 && e.pointerType !== 'touch' && !AG.remarcar) drag = { ev, x: e.clientX, y: e.clientY, id: e.pointerId };
+    if (ev && e.button === 0 && e.pointerType !== 'touch' && !AG.remarcar) drag = { ev, x: e.clientX, y: e.clientY, id: e.pointerId, off: Math.floor((e.clientY - ev.getBoundingClientRect().top) / SLOT_H) }; // off: slots entre o topo e o ponto agarrado
   });
   cal.addEventListener('pointermove', e => {
     if (!drag) return;
@@ -253,7 +253,9 @@ async function drawAgenda() {
       drag.on = true; drag.ev.setPointerCapture(drag.id); drag.ev.style.opacity = '.5'; drag.ev.style.cursor = 'grabbing';
     }
     document.getSelection()?.removeAllRanges();
-    pinta(drag, document.elementsFromPoint(e.clientX, e.clientY).find(x => x.classList.contains('slot') && cal.contains(x)) || null);
+    const s = document.elementsFromPoint(e.clientX, e.clientY).find(x => x.classList.contains('slot') && cal.contains(x));
+    const ss = s ? $$('.slot', s.closest('.col')) : [];
+    pinta(drag, s ? ss[Math.max(0, ss.indexOf(s) - drag.off)] : null);
   });
   cal.addEventListener('pointerup', () => {
     const d = fimDrag(); if (!d?.on) return;
@@ -404,7 +406,7 @@ function refreshCurrent() { if (['agenda', 'inicio', 'paciente', 'listagens'].in
 function procurarVaga(preset = {}) {
   const lk = L(); const meds = ativos(lk.medicos); const cfg = lk.config;
   const diasAb = (cfg.agenda_dias || '1,2,3,4,5').split(',');
-  modal({ title: 'Pesquisa de vagas', size: 'lg', body: `<form class="form-grid" onsubmit="return false">
+  modal({ title: 'Pesquisa de vagas', size: 'lg', semAlteracoes: true, body: `<form class="form-grid" onsubmit="return false">
       ${fld('Médico', sel('medico_id', opts(meds, preset.medico_id || (AG.medicos && [...AG.medicos][0]))), 's2')}
       ${fld('2.º médico (opcional — ambos livres)', sel('medico2_id', opts(meds, null, { empty: '—' })), 's2')}
       ${fld('Duração (min)', inp('duracao', preset.duracao || 30, 'type="number" step="5" min="5"'))}${fld('A partir de', inp('de', isoDate(), 'type="date"'))}
@@ -443,7 +445,8 @@ function editBloqueio(b, { date, medico_id } = {}) {
     const f = readForm($('form', c.body));
     const inicio = `${f.d1}T${f.dia_todo ? '00:00' : f.h1}`, fim = `${f.d2}T${f.dia_todo ? '23:59' : f.h2}`;
     if (fim <= inicio) throw new Error('O fim tem de ser depois do início');
-    const ocup = (await GET(`agenda?de=${f.d1}&ate=${f.d2}`)).filter(m => (!f.medico_id || String(m.medico_id) === f.medico_id) && m.inicio < fim && m.fim > inicio && !['INATIVAS', 'FALTAS'].includes(m.estado_categoria));
+    const ate = [f.d2, addDays(f.d1, 365)].sort()[0]; // o servidor limita o intervalo da agenda
+    const ocup = (await GET(`agenda?de=${f.d1}&ate=${ate}`)).filter(m => (!f.medico_id || String(m.medico_id) === f.medico_id) && m.inicio < fim && m.fim > inicio && !['INATIVAS', 'FALTAS'].includes(m.estado_categoria));
     if (ocup.length && !await confirmDlg(`Existem ${ocup.length} marcação(ões) neste período (ex.: ${ocup[0].paciente_nome} a ${fmtDT(ocup[0].inicio)}). Bloquear mesmo assim? As marcações não são alteradas.`, 'Bloquear')) return false;
     const payload = { medico_id: f.medico_id ? Number(f.medico_id) : null, tipo: f.tipo, motivo: f.motivo, inicio, fim };
     isNew ? await POST('t/bloqueios', payload) : await PUT('t/bloqueios/' + b.id, payload);
@@ -516,7 +519,7 @@ async function enviarAviso(alvo, titulo = 'Enviar mensagem', modeloNome) {
   const modelos = ativos(L().sms_modelos);
   const est = await GET('sms/estado').catch(() => ({ email: false, sms: false }));
   const mdef = modelos.find(m => m.nome === modeloNome) || modelos[0];
-  modal({ title: titulo, size: 'lg', body: `<form class="form-grid" onsubmit="return false">
+  modal({ title: titulo, size: 'lg', semAlteracoes: true, semCtrlS: true, body: `<form class="form-grid" onsubmit="return false">
       ${fld('Modelo', sel('modelo_id', opts(modelos, mdef?.id)), 's2')}
       <div class="s2"><label class="f">Enviar por</label><div style="padding-top:5px">${chk('c_sms', 1, 'SMS')}${chk('c_email', 0, 'E-mail')}</div></div>
       <div class="s4 small muted">${est.sms ? 'SMS: envio automático ativo.' : 'SMS: sem fornecedor configurado — as mensagens ficam preparadas para copiar ou abrir no telemóvel.'}

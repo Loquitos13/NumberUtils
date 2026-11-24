@@ -74,7 +74,7 @@ async function emitirDocumento({ paciente, tratamentos = [], linhas, tipo = 'FR'
   let total = 0;
   const medDefault = tratamentos[0]?.medico_id || paciente?.medico_id || App.user.medico_id;
   const fixo = tipo === 'NC' || tipo === 'ND';
-  modal({ title: fixo ? `${TIPO_NOME[tipo]}${ref ? ' — ref. ' + ref.numero : ''}` : 'Emitir documento', size: 'lg', body: `<form class="form-grid" onsubmit="return false">
+  modal({ title: fixo ? `${TIPO_NOME[tipo]}${ref ? ' — ref. ' + ref.numero : ''}` : 'Emitir documento', size: 'lg', semCtrlS: true, body: `<form class="form-grid" onsubmit="return false">
     <div class="s2">${pacField('paciente_id', paciente?.id, paciente?.nome)}</div>
     ${fld('Tipo de documento', sel('tipo', fixo ? optsArr([[tipo, TIPO_NOME[tipo]]]) : optsArr(TIPOS_EMITIR, tipo), paciente ? 'autofocus' : ''))}
     ${fld('Data', inp('data', isoDate(), 'type="date"'))}
@@ -108,7 +108,7 @@ async function emitirDocumento({ paciente, tratamentos = [], linhas, tipo = 'FR'
 // ---------- recibo (liquida uma ou várias faturas) ----------
 async function emitirRecibo({ paciente, documento, documentos: preSel, onDone } = {}) {
   const sel0 = new Set((preSel || (documento ? [documento.id] : null) || []).map(Number));
-  modal({ title: 'Receber pagamento', size: 'lg', body: `<form class="form-grid" onsubmit="return false">
+  modal({ title: 'Receber pagamento', size: 'lg', semCtrlS: true, body: `<form class="form-grid" onsubmit="return false">
     <div class="s4">${pacField('paciente_id', paciente?.id, paciente?.nome)}</div>
     <div class="s4" id="rc-docs"></div>
     ${fld('Valor recebido (€)', inp('valor', '', `type="number" step="0.01" min="0" ${paciente ? 'autofocus' : ''}`))}

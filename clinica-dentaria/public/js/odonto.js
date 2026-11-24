@@ -69,7 +69,7 @@ async function odontograma(el, p, opts = {}) {
       ? `<li><span class="dot" style="background:${COND[i.condicao]?.c}"></span><span class="grow">${esc(COND[i.condicao]?.l || i.condicao)} <span class="muted">${esc(i.dente)}${i.faces ? ' ' + esc(i.faces) : ''}</span><br><span class="muted small">${fmtDate(i.data)}</span></span>
          <button class="ghost sm icon" data-dc="${i.id}" title="Eliminar" aria-label="Eliminar"><i data-ic="trash"></i></button></li>`
       : `<li class="${i.estado === 'planeado' ? 'is-nec' : 'is-feito'}"><span class="mark"></span><span class="grow">${esc(i.descricao)} <span class="muted">${esc(i.dente)}${i.faces ? ' ' + esc(i.faces) : ''}</span><br><span class="muted small">${fmtDate(i.data)}</span></span>
-         ${i.estado === 'planeado' ? `<button class="sm" data-done="${i.id}">Feito</button><button class="sm" data-ag="${i.id}" title="${i.marcacao_inicio ? 'Agendado ' + fmtDT(i.marcacao_inicio) : 'Agendar'}">${i.marcacao_inicio && i.marcacao_inicio >= isoDate() ? fmtDate(i.marcacao_inicio).slice(0, 5) : 'Agendar'}</button>` : ''}${i.documento_id ? '' : `<button class="ghost sm icon" data-dt="${i.id}" title="Eliminar" aria-label="Eliminar"><i data-ic="trash"></i></button>`}</li>`).join('')}</ul>` : '<p class="muted small">Sem registos.</p>'}`; };
+         ${i.estado === 'planeado' ? `<button class="sm" data-done="${i.id}">Feito</button><button class="sm" data-ag="${i.id}" title="${i.marcacao_inicio ? 'Agendado ' + fmtDT(i.marcacao_inicio) : 'Agendar'}">${i.marcacao_inicio && i.marcacao_inicio >= isoDate() ? fmtDate(i.marcacao_inicio).slice(0, 5) : 'Agendar'}</button>` : ''}${i.documento_id || (i.estado === 'realizado' && App.user.perfil !== 'admin') ? '' : `<button class="ghost sm icon" data-dt="${i.id}" title="Eliminar" aria-label="Eliminar"><i data-ic="trash"></i></button>`}</li>`).join('')}</ul>` : '<p class="muted small">Sem registos.</p>'}`; };
 
   el.innerHTML = `<div class="od-wrap">
     <section class="card od-chart">
@@ -100,8 +100,8 @@ async function odontograma(el, p, opts = {}) {
   $$('[data-filtro]', el).forEach(b => b.onclick = () => { st.filtro = b.dataset.filtro; odontograma(el, p, opts); });
   const bindSel = () => {
     $$('[data-face]', el).forEach(b => b.onclick = () => { const f = b.dataset.face; st.faces.has(f) ? st.faces.delete(f) : st.faces.add(f); b.classList.toggle('on'); b.setAttribute('aria-pressed', st.faces.has(f)); });
-    $$('[data-dc]', el).forEach(b => b.onclick = async () => { if (await confirmDlg('Eliminar esta condição do dente?', 'Eliminar', true)) { await DEL('t/dentes_condicoes/' + b.dataset.dc); redraw(); } });
-    $$('[data-dt]', el).forEach(b => b.onclick = async () => { if (await confirmDlg('Eliminar este tratamento?', 'Eliminar', true)) { await DEL('t/tratamentos/' + b.dataset.dt); redraw(); } });
+    $$('[data-dc]', el).forEach(b => b.onclick = async () => { if (await confirmDlg('Eliminar esta condição do dente?', 'Eliminar', true)) { await act(() => DEL('t/dentes_condicoes/' + b.dataset.dc)); redraw(); } });
+    $$('[data-dt]', el).forEach(b => b.onclick = async () => { if (await confirmDlg('Eliminar este tratamento?', 'Eliminar', true)) { await act(() => DEL('t/tratamentos/' + b.dataset.dt)); redraw(); } });
     $$('[data-ag]', el).forEach(b => b.onclick = () => agendarTratamentos([trat.find(t => t.id === Number(b.dataset.ag))], p, redraw));
     $$('[data-done]', el).forEach(b => b.onclick = async () => {
       await act(() => PUT('t/tratamentos/' + b.dataset.done, { estado: 'realizado', data: isoDate(), ...(m ? { marcacao_id: m.id, medico_id: m.medico_id } : {}) }), 'Marcado como feito');
@@ -171,7 +171,7 @@ route('consulta', async (view, [id]) => {
   view.innerHTML = `<div class="consulta-head card">
       <div class="row">
         <a class="back btn ghost icon" href="#/agenda/${m.inicio.slice(0, 10)}" title="Voltar à agenda" aria-label="Voltar à agenda"><i data-ic="chevron-left"></i></a>
-        ${p.foto ? `<img class="avatar" src="${esc(p.foto)}" alt="">` : `<div class="avatar">${esc(p.nome.split(' ').filter(Boolean).filter((_, i, x) => i === 0 || i === x.length - 1).map(w => [...new Intl.Segmenter().segment(w)][0].segment).join('').toUpperCase())}</div>`}
+        ${p.foto ? `<img class="avatar" src="${esc(p.foto)}" alt="">` : `<div class="avatar">${esc(iniciais(p.nome))}</div>`}
         <div class="grow"><h1 style="margin:0"><a href="#/paciente/${p.id}" class="plain">${esc(p.nome)}</a></h1>
           <div class="muted small">Proc. <span class="num">${esc(p.numero)}</span>${p.data_nasc ? ` · ${idade(p.data_nasc)} anos` : ''}${p.telemovel ? ` · <span class="num">${esc(p.telemovel)}</span>` : ''}${p.entidade_nome ? ' · ' + esc(p.entidade_nome) : ''}</div></div>
         <div class="consulta-when"><div class="num bold">${fmtDate(m.inicio)} · ${fmtTime(m.inicio)}–${fmtTime(m.fim)}</div><div class="muted small">${esc(m.medico_nome)}${m.gabinete_nome ? ' · ' + esc(m.gabinete_nome) : ''}${m.servico_nome ? ' · ' + esc(m.servico_nome) : ''}</div></div>
@@ -232,12 +232,12 @@ route('consulta', async (view, [id]) => {
   };
   const notas = async () => {
     const ns = (await GET(`pacientes/${p.id}/notas`)).filter(n => n.marcacao_id === m.id);
-    $('#cs-notas').innerHTML = ns.map(n => `<div class="nota"><div class="muted small">${fmtDT(n.data)} ·${esc(n.medico_nome || n.user_nome || '')}</div>${esc(n.texto).replace(/\n/g, '<br>')}</div>`).join('');
+    $('#cs-notas').innerHTML = ns.map(n => `<div class="nota"><div class="muted small">${fmtDT(n.data)} · ${esc(n.medico_nome || n.user_nome || '')}</div>${esc(n.texto).replace(/\n/g, '<br>')}</div>`).join('');
   };
   $('#cs-nota-add').onclick = async () => {
     const texto = $('#cs-nota').value.trim(); if (!texto) return toast('Escreva a nota', true);
     await act(() => POST('notas', { paciente_id: p.id, texto, medico_id: m.medico_id, marcacao_id: m.id }), 'Nota guardada');
-    $('#cs-nota').value = ''; notas();
+    $('#cs-nota').value = ''; App.dirty = false; notas();
   };
   await Promise.all([odontograma($('#cs-odonto'), p, { marcacao: m, onChange: resumo }), resumo(), notas()]);
 });

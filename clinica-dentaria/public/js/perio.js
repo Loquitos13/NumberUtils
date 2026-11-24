@@ -126,7 +126,7 @@ async function tabPerio(el, p, st = {}) {
     if (mau) { mau.focus(); return toast(`Valor inválido em ${mau.getAttribute('aria-label')}: use só números`, true); }
     const body = { data: $('#pe-data', el).value, medico_id: Number($('#pe-med', el).value) || null, notas: $('#pe-notas', el).value, dados: perioLer(grid) };
     const e = await act(() => cur ? PUT(`perio/${cur.id}`, body) : POST(`pacientes/${p.id}/perio`, body), 'Exame guardado').catch(() => null);
-    if (e) redo({ id: e.id, comp: $('#pe-comp', el).value });
+    if (e) { App.dirty = false; redo({ id: e.id, comp: $('#pe-comp', el).value }); }
   };
   if (!cur) return;
   if ($('#pe-del', el)) $('#pe-del', el).onclick = async () => {

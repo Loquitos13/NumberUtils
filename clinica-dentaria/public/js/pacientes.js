@@ -82,12 +82,6 @@ function escolherFoto(pid) {
 }
 
 // ---------- ficha do paciente ----------
-// 1.º e último nome, por grafema (emoji e acentos compostos não se partem)
-function iniciais(nome) {
-  const g = w => Intl.Segmenter ? [...new Intl.Segmenter('pt').segment(w)][0].segment : Array.from(w)[0];
-  const ws = String(nome || '').split(/\s+/).filter(Boolean);
-  return ws.filter((_, i) => i === 0 || i === ws.length - 1).map(g).join('').toUpperCase();
-}
 const FICHA_TABS = [['resumo', 'Resumo'], ['odontograma', 'Odontograma'], ['perio', 'Periodontograma'], ['tratamentos', 'Tratamentos'], ['anamnese', 'Anamnese'],
   ['notas', 'Notas clínicas'], ['marcacoes', 'Marcações'], ['orcamentos', 'Orçamentos'], ['cc', 'Conta corrente'], ['proteses', 'Próteses'], ['anexos', 'Ficheiros']];
 
@@ -240,7 +234,7 @@ async function tabTratamentos(el, p) {
       { h: 'Tratamento', f: t => esc(t.descricao) }, { h: 'Médico', cls: 'nowrap', f: t => esc(t.medico_nome) },
       { h: 'Estado', cls: 'nowrap', f: t => t.documento_id ? `<a href="#" data-doc="${t.documento_id}" class="plain">${estadoChip(t)}</a>` : estadoChip(t) },
       { h: 'Valor', cls: 'right nowrap', f: t => eur(liqTrat(t)) + (t.desconto_pct ? ` <span class="muted small">-${num(t.desconto_pct)}%</span>` : '') },
-      { h: '', cls: 'right nowrap', f: t => `<button class="ghost sm icon" data-ed="${t.id}" aria-label="Editar" title="Editar"><i data-ic="edit"></i></button>${t.documento_id ? '' : `<button class="ghost sm icon" data-del="${t.id}" aria-label="Eliminar" title="Eliminar"><i data-ic="trash"></i></button>`}` },
+      { h: '', cls: 'right nowrap', f: t => `<button class="ghost sm icon" data-ed="${t.id}" aria-label="Editar" title="Editar"><i data-ic="edit"></i></button>${t.documento_id || (t.estado === 'realizado' && App.user.perfil !== 'admin') ? '' : `<button class="ghost sm icon" data-del="${t.id}" aria-label="Eliminar" title="Eliminar"><i data-ic="trash"></i></button>`}` },
     ], { empty: st.filtro === 'todos' ? 'Sem tratamentos registados' : 'Nenhum tratamento neste estado', rowCls: t => 'row-' + t._e })}</div>
     <div class="row" style="margin-top:8px">
       <button class="sm ghost" id="tr-all">${todosSel() ? 'Desmarcar todos' : 'Selecionar todos'}</button>
@@ -276,7 +270,7 @@ async function tabTratamentos(el, p) {
   };
   $('#tr-new', el).onclick = () => editTratamento(null, p, redo);
   $$('[data-ed]', el).forEach(b => b.onclick = () => editTratamento(byId(trat, b.dataset.ed), p, redo));
-  $$('[data-del]', el).forEach(b => b.onclick = async () => { if (await confirmDlg('Eliminar este tratamento?', 'Eliminar', true)) { await DEL('t/tratamentos/' + b.dataset.del); redo(); } });
+  $$('[data-del]', el).forEach(b => b.onclick = async () => { if (await confirmDlg('Eliminar este tratamento?', 'Eliminar', true)) { await act(() => DEL('t/tratamentos/' + b.dataset.del)); redo(); } });
   $$('[data-doc]', el).forEach(a => a.onclick = e => { e.preventDefault(); verDocumento(Number(a.dataset.doc)); });
   const done = () => { st.sel.clear(); redo(); };
   $$('[data-act]', el).forEach(b => b.onclick = async () => {
