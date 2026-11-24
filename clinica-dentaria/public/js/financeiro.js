@@ -21,14 +21,16 @@ const AVISO_CERT = 'Documento processado por programa não certificado pela AT. 
 function linhasEditor(root, linhas, onChange) {
   const lk = L();
   const draw = () => {
-    root.innerHTML = `<div class="tbl-wrap" style="max-height:none"><table class="t"><thead><tr><th style="width:28%">Serviço</th><th>Descrição</th><th style="width:70px">Dente</th>
-      <th style="width:60px">Qtd</th><th style="width:90px">Preço</th><th style="width:70px">Desc.%</th><th style="width:120px">IVA</th><th class="right" style="width:90px">Total</th><th></th></tr></thead>
+    // table-layout fixed: as larguras são respeitadas e a Descrição fica com o espaço que sobra
+    const al = (c, i) => `aria-label="${c}, linha ${i + 1}"`;
+    root.innerHTML = `<div class="tbl-wrap" style="max-height:none"><table class="t" style="table-layout:fixed"><thead><tr><th style="width:18%">Serviço</th><th>Descrição</th><th style="width:58px">Dente</th>
+      <th style="width:56px">Qtd</th><th style="width:78px">Preço</th><th style="width:60px">Desc.%</th><th style="width:138px">IVA</th><th class="right" style="width:86px">Total</th><th style="width:56px"></th></tr></thead>
       <tbody>${linhas.map((l, i) => `<tr data-i="${i}">
-        <td>${sel('servico_id', opts(ativos(lk.servicos), l.servico_id, { empty: '—', label: s => `${s.codigo || ''} ${s.nome}` }))}</td>
-        <td>${inp('descricao', l.descricao)}</td><td>${inp('dente', l.dente)}</td>
-        <td>${inp('qtd', l.qtd ?? 1, 'type="number" step="1" min="0"')}</td><td>${inp('preco', l.preco ?? 0, 'type="number" step="0.01"')}</td>
-        <td>${inp('desconto_pct', l.desconto_pct ?? 0, 'type="number" step="0.01"')}</td><td>${sel('iva_id', ivaOpts(ivaFix(l).iva_id))}</td>
-        <td class="right bold" data-tot></td><td>${l.tratamento_id ? '<span title="Tratamento associado" class="muted"><i data-ic="tooth"></i></span>' : ''}<button type="button" class="ghost sm icon" data-rm aria-label="Remover linha"><i data-ic="x"></i></button></td></tr>`).join('')}</tbody></table></div>
+        <td>${sel('servico_id', opts(ativos(lk.servicos), l.servico_id, { empty: '—', label: s => `${s.codigo || ''} ${s.nome}` }), al('Serviço', i))}</td>
+        <td>${inp('descricao', l.descricao, al('Descrição', i))}</td><td>${inp('dente', l.dente, al('Dente', i))}</td>
+        <td>${inp('qtd', l.qtd ?? 1, 'type="number" step="1" min="0" ' + al('Quantidade', i))}</td><td>${inp('preco', l.preco ?? 0, 'type="number" step="0.01" ' + al('Preço', i))}</td>
+        <td>${inp('desconto_pct', l.desconto_pct ?? 0, 'type="number" step="0.01" ' + al('Desconto %', i))}</td><td>${sel('iva_id', ivaOpts(ivaFix(l).iva_id), al('IVA', i))}</td>
+        <td class="right bold" data-tot></td><td>${l.tratamento_id ? '<span title="Tratamento associado" class="muted"><i data-ic="tooth"></i></span>' : ''}<button type="button" class="ghost sm icon" data-rm aria-label="Remover linha ${i + 1}"><i data-ic="x"></i></button></td></tr>`).join('')}</tbody></table></div>
       <div class="row between" style="margin-top:8px"><button type="button" class="sm" data-add>Adicionar linha</button>
       <div id="le-tot" class="right"></div></div>`;
     $$('tr[data-i]', root).forEach(tr => {
@@ -74,7 +76,7 @@ async function emitirDocumento({ paciente, tratamentos = [], linhas, tipo = 'FR'
   const fixo = tipo === 'NC' || tipo === 'ND';
   modal({ title: fixo ? `${TIPO_NOME[tipo]}${ref ? ' — ref. ' + ref.numero : ''}` : 'Emitir documento', size: 'lg', body: `<form class="form-grid" onsubmit="return false">
     <div class="s2">${pacField('paciente_id', paciente?.id, paciente?.nome)}</div>
-    ${fld('Tipo de documento', sel('tipo', fixo ? optsArr([[tipo, TIPO_NOME[tipo]]]) : optsArr(TIPOS_EMITIR, tipo)))}
+    ${fld('Tipo de documento', sel('tipo', fixo ? optsArr([[tipo, TIPO_NOME[tipo]]]) : optsArr(TIPOS_EMITIR, tipo), paciente ? 'autofocus' : ''))}
     ${fld('Data', inp('data', isoDate(), 'type="date"'))}
     ${fld('Médico', sel('medico_id', opts(lk.medicos, medDefault, { empty: '—', only: x => x.ativo })), 's2')}
     ${fld('Método de pagamento', sel('metodo', optsArr(METODOS)), 's2" id="ed-met')}
@@ -109,7 +111,7 @@ async function emitirRecibo({ paciente, documento, documentos: preSel, onDone } 
   modal({ title: 'Receber pagamento', size: 'lg', body: `<form class="form-grid" onsubmit="return false">
     <div class="s4">${pacField('paciente_id', paciente?.id, paciente?.nome)}</div>
     <div class="s4" id="rc-docs"></div>
-    ${fld('Valor recebido (€)', inp('valor', '', 'type="number" step="0.01" min="0"'))}
+    ${fld('Valor recebido (€)', inp('valor', '', `type="number" step="0.01" min="0" ${paciente ? 'autofocus' : ''}`))}
     ${fld('Meio de pagamento', sel('metodo', optsArr(METODOS)))}${fld('Data', inp('data', isoDate(), 'type="date"'))}<div></div>
     ${fld('Notas', inp('notas', ''), 's4')}</form>`,
   buttons: [{ label: 'Cancelar' }, { label: 'Emitir recibo', cls: 'primary', onClick: async c => {
@@ -213,7 +215,7 @@ async function tabContaCorrente(el, p) {
 }
 
 // ---------- página de faturação ----------
-route('faturacao', async (view, [sub = 'documentos']) => {
+route('faturacao', async (view, [sub = 'documentos', dia]) => {
   view.innerHTML = `<div class="page-head"><h1>Faturação</h1><div class="spacer"></div>
     <button id="fx-rc">Receber pagamento</button><button class="primary" id="fx-new">Novo documento</button></div>
     ${secTabs(SEC_FAT, sub === 'documentos' ? '#/faturacao' : '#/faturacao/' + sub)}
@@ -232,7 +234,7 @@ route('faturacao', async (view, [sub = 'documentos']) => {
     return;
   }
   if (sub === 'caixa') {
-    const de = body.dataset.de || isoDate();
+    const de = /^\d{4}-\d{2}-\d{2}$/.test(dia || '') ? dia : isoDate();
     const docs = await GET(`documentos?de=${de}&ate=${de}`);
     const st = await GET(`estatisticas?de=${de}&ate=${de}&sem_divida=1`);
     body.innerHTML = `<div class="card"><div class="row">${fld('Dia', `<input type="date" id="cx-d" value="${de}">`)}<div class="spacer"></div><button id="cx-print">Imprimir fecho</button></div>
@@ -241,7 +243,7 @@ route('faturacao', async (view, [sub = 'documentos']) => {
       <div class="fact"><div class="l">Documentos</div><div class="v">${docs.length}</div></div></div>
       <h3>Recebimentos por método</h3>${hbars(st.recebMetodo, { label: 'metodo', value: 'total', fmt: eur })}
       <h3 style="margin-top:16px">Documentos do dia</h3>${docsTable(docs)}</div>`;
-    $('#cx-d').onchange = e => { body.dataset.de = e.target.value; render(); };
+    $('#cx-d').onchange = e => { if (e.target.value) go('#/faturacao/caixa/' + e.target.value); };
     bindDocsTable(body);
     $('#cx-print').onclick = () => printHTML(`<div class="doc"><div class="dh">${cabecalhoClinica()}<div><h2>Fecho de caixa</h2>${fmtDate(de)}</div></div>
       <p>Faturado: <b>${eur(st.kpi.faturado)}</b> · Recebido: <b>${eur(st.kpi.recebido)}</b></p>

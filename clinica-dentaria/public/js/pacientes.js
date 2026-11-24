@@ -6,18 +6,20 @@ route('pacientes', async (view) => {
     <label class="check"><input type="checkbox" id="pl-inat"> Incluir inativos</label>
     <button id="pl-csv">Exportar</button><button class="primary" id="pl-new">Novo paciente</button></div>
     <div class="card"><input id="pl-q" placeholder="Pesquisar por nome, NIF, telemóvel, e-mail ou n.º de processo…" style="margin-bottom:12px"><div id="pl-res"></div></div>`;
-  let rows = [];
+  let rows = [], lim = 500;
   const cols = [
     { h: 'N.º', f: p => esc(p.numero) }, { h: 'Nome', f: p => `<b>${esc(p.nome)}</b>` }, { h: 'Idade', f: p => esc(idade(p.data_nasc)) },
     { h: 'NIF', f: p => esc(p.nif) }, { h: 'Telemóvel', f: p => esc(p.telemovel || p.telefone) }, { h: 'E-mail', f: p => esc(p.email) },
     { h: 'Médico', f: p => esc(p.medico_nome) }, { h: 'Entidade', f: p => esc(p.entidade_nome) },
   ];
   const load = async () => {
-    rows = await GET(`pacientes?limit=500&ativos=${$('#pl-inat').checked ? 0 : 1}&q=${encodeURIComponent($('#pl-q').value)}`);
+    rows = await GET(`pacientes?limit=${lim}&ativos=${$('#pl-inat').checked ? 0 : 1}&q=${encodeURIComponent($('#pl-q').value)}`);
     $('#pl-res').innerHTML = `<div class="tbl-wrap">${table(rows, cols, { onClick: p => go('#/paciente/' + p.id), rowCls: p => p.ativo ? '' : 'off' })}</div>
-      <div class="muted small" style="margin-top:6px">${rows.length} paciente(s)${rows.length >= 500 ? ' (mostrando os primeiros 500)' : ''}</div>`;
+      <div class="row muted small" style="margin-top:6px">${rows.length} paciente(s)${rows.length >= lim ? ` (mostrando os primeiros ${lim}) <button class="sm" id="pl-mais">Mostrar mais</button>` : ''}</div>`;
+    const mais = $('#pl-mais'); if (mais) mais.onclick = () => { lim += 500; load(); };
   };
-  $('#pl-q').oninput = debounce(load); $('#pl-inat').onchange = load;
+  const reset = () => { lim = 500; load(); };
+  $('#pl-q').oninput = debounce(reset); $('#pl-inat').onchange = reset;
   $('#pl-new').onclick = () => editPaciente(null, p => go('#/paciente/' + p.id));
   $('#pl-csv').onclick = () => downloadCSV('pacientes', rows, cols);
   $('#pl-q').focus();
@@ -25,9 +27,10 @@ route('pacientes', async (view) => {
 });
 
 // ---------- criar/editar paciente ----------
-async function editPaciente(id, onSaved) {
+// prefill (só em novo): valores iniciais, ex. { nome } vindo da pesquisa global
+async function editPaciente(id, onSaved, prefill = {}) {
   const lk = L();
-  const p = id ? await GET('t/pacientes/' + id) : { sms_ok: 1, email_ok: 1, ativo: 1 };
+  const p = id ? await GET('t/pacientes/' + id) : { sms_ok: 1, email_ok: 1, ativo: 1, ...prefill };
   const body = `<form class="form-grid" onsubmit="return false">
     ${fld('Título', sel('titulo', optsArr(['', 'Sr.', 'Sra.', 'Dr.', 'Dra.', 'Eng.', 'Prof.', 'Criança'], p.titulo)))}${fld('Nome completo *', inp('nome', p.nome, 'required'), 's3')}
     ${fld('N.º processo', inp('numero', p.numero, 'type="number" placeholder="automático"'))}${fld('ID externo', inp('id_externo', p.id_externo, 'placeholder="ex.: n.º no sistema antigo"'))}
@@ -79,6 +82,12 @@ function escolherFoto(pid) {
 }
 
 // ---------- ficha do paciente ----------
+// 1.º e último nome, por grafema (emoji e acentos compostos não se partem)
+function iniciais(nome) {
+  const g = w => Intl.Segmenter ? [...new Intl.Segmenter('pt').segment(w)][0].segment : Array.from(w)[0];
+  const ws = String(nome || '').split(/\s+/).filter(Boolean);
+  return ws.filter((_, i) => i === 0 || i === ws.length - 1).map(g).join('').toUpperCase();
+}
 const FICHA_TABS = [['resumo', 'Resumo'], ['odontograma', 'Odontograma'], ['perio', 'Periodontograma'], ['tratamentos', 'Tratamentos'], ['anamnese', 'Anamnese'],
   ['notas', 'Notas clínicas'], ['marcacoes', 'Marcações'], ['orcamentos', 'Orçamentos'], ['cc', 'Conta corrente'], ['proteses', 'Próteses'], ['anexos', 'Ficheiros']];
 
@@ -86,16 +95,17 @@ route('paciente', async (view, [id, tab = 'resumo']) => {
   const p = await GET(`pacientes/${id}/resumo`);
   view.innerHTML = `<div class="card" style="padding:14px 16px">
     <div class="row">
-      <div id="pf-foto" title="Clique para alterar a foto" style="cursor:pointer">${p.foto ? `<img class="avatar" src="${esc(p.foto)}" alt="">`
-        : `<div class="avatar">${esc(p.nome.split(' ').filter(Boolean).map(w => w[0]).filter((_, i, a) => i === 0 || i === a.length - 1).join('').toUpperCase())}</div>`}</div>
+      <button type="button" id="pf-foto" class="ghost" style="padding:0;border-radius:50%" title="Alterar foto" aria-label="Alterar foto">${p.foto ? `<img class="avatar" src="${esc(p.foto)}" alt="">`
+        : `<span class="avatar">${esc(iniciais(p.nome))}</span>`}</button>
       <div><h1 style="margin:0">${p.titulo && p.titulo !== 'Criança' ? `<span class="muted" style="font-weight:400">${esc(p.titulo)}</span> ` : ''}${esc(p.nome)} ${p.ativo ? '' : '<span class="badge">Inativo</span>'}</h1>
         <div class="muted small">Processo n.º ${esc(p.numero)} · ${p.data_nasc ? `${fmtDate(p.data_nasc)} (${idade(p.data_nasc)} anos)` : 'sem data de nascimento'}
         ${p.nif ? ' · NIF ' + esc(p.nif) : ''}${p.telemovel ? ' · Tlm. ' + esc(p.telemovel) : ''}${p.entidade_nome ? ' · ' + esc(p.entidade_nome) : ''}</div></div>
       <div class="spacer"></div>
       <div class="right"><div class="muted small">Saldo</div><div class="bold ${p.saldo.saldo > 0 ? 'danger' : 'ok'}" style="font-size:1.2rem">${eur(p.saldo.saldo)}</div></div>
-      <button id="pf-marc" class="primary">Nova marcação</button><button id="pf-vaga" class="icon" title="Procurar vaga" aria-label="Procurar vaga"><i data-ic="search"></i></button><button id="pf-esp" class="icon" title="Lista de espera" aria-label="Lista de espera"><i data-ic="clock"></i></button><button id="pf-edit">Editar</button><button id="pf-print" class="icon" title="Imprimir ficha" aria-label="Imprimir ficha"><i data-ic="printer"></i></button>
+      <div class="row" style="flex-wrap:nowrap"><button id="pf-marc" class="primary">Nova marcação</button><button id="pf-vaga" class="icon" title="Procurar vaga" aria-label="Procurar vaga"><i data-ic="search"></i></button><button id="pf-esp" class="icon" title="Lista de espera" aria-label="Lista de espera"><i data-ic="clock"></i></button><button id="pf-edit">Editar</button><button id="pf-print" class="icon" title="Imprimir ficha" aria-label="Imprimir ficha"><i data-ic="printer"></i></button></div>
     </div>
     ${alertasHtml(p)}
+    ${p.anamnese?.atualizado_em ? '' : `<div class="alert" style="margin:10px 0 0">Anamnese por preencher. <a href="#/paciente/${p.id}/anamnese">Preencher anamnese</a></div>`}
     ${!p.rgpd_consent ? '<div class="alert" style="margin:10px 0 0">Sem consentimento RGPD registado.</div>' : ''}
   </div>
   <div class="tabs">${FICHA_TABS.map(([k, l]) => `<button class="${k === tab ? 'active' : ''}" data-t="${k}">${l}</button>`).join('')}</div>
@@ -116,19 +126,20 @@ route('paciente', async (view, [id, tab = 'resumo']) => {
 async function tabResumo(el, p) {
   const [trat, notas] = await Promise.all([GET(`pacientes/${p.id}/tratamentos`), GET(`pacientes/${p.id}/notas`)]);
   const plan = trat.filter(t => t.estado === 'planeado');
+  const morada = [p.morada, [p.cod_postal, p.localidade].filter(Boolean).join(' ')].filter(Boolean).map(esc).join('<br>');
   el.innerHTML = `<div class="grid g3">
     <div class="card"><h3>Contactos</h3>
-      <div>${esc(p.morada)}<br>${esc(p.cod_postal)} ${esc(p.localidade)}</div>
+      <div>${morada || '<span class="muted">Sem morada</span>'}</div>
       <dl class="kv" style="margin-top:8px"><dt>Telemóvel</dt><dd class="num">${esc(p.telemovel || '—')}</dd>${p.telefone ? `<dt>Telefone</dt><dd class="num">${esc(p.telefone)}</dd>` : ''}<dt>E-mail</dt><dd>${esc(p.email || '—')}</dd></dl>
       <div class="muted small" style="margin-top:8px">SNS: ${esc(p.sns || '—')} · CC: ${esc(p.cc || '—')}<br>Profissão: ${esc(p.profissao || '—')}</div>
-      <div class="muted small" style="margin-top:8px">Médico: ${esc(p.medico_nome || '—')}<br>1.ª visita: ${esc(p.razao_nome || '—')}<br>Criado em ${fmtDate(p.criado_em)}${p.alterado_em ? `<br>Alterado por ${esc(p.alterado_por_nome || '—')} em ${esc(p.alterado_em)}` : ''}</div>
+      <div class="muted small" style="margin-top:8px">Médico: ${esc(p.medico_nome || '—')}<br>1.ª visita: ${esc(p.razao_nome || '—')}<br>Criado em ${fmtDate(p.criado_em)}${p.alterado_em ? `<br>Alterado por ${esc(p.alterado_por_nome || '—')} em ${fmtDT(p.alterado_em)}` : ''}</div>
       ${p.contacto_emergencia || p.telefone_emergencia ? `<div style="margin-top:8px"><span class="danger bold">Emergência:</span> ${esc(p.contacto_emergencia || '')} ${esc(p.telefone_emergencia || '')}</div>` : ''}
       ${p.nacionalidade || p.idioma ? `<div class="muted small" style="margin-top:4px">${esc(p.nacionalidade || '')}${p.idioma ? ' · idioma ' + esc(p.idioma) : ''}</div>` : ''}
       ${p.agregado.length || p.titular_nome ? `<h3 style="margin-top:14px">Agregado familiar</h3>${p.titular_nome ? '' : '<div class="muted small">Titular do agregado</div>'}
         ${p.agregado.map(m => `<div><a href="#/paciente/${m.id}">${esc(m.nome)}</a> <span class="muted small">${m.id === p.agregado_id ? '(titular)' : ''}${m.data_nasc ? ' ' + idade(m.data_nasc) + ' anos' : ''}</span></div>`).join('')}` : ''}
       ${p.notas ? `<div class="alert info" style="margin-top:10px">${esc(p.notas)}</div>` : ''}</div>
     <div class="card"><h3>Consultas</h3>
-      <div><span class="muted">Próxima:</span> ${p.proxima ? `<b>${fmtDT(p.proxima.inicio)}</b> · ${esc(p.proxima.medico_nome)}<br><span class="small">${esc(p.proxima.servico_nome || '')} · ${esc(p.proxima.estado_nome)}</span>` : '—'}</div>
+      <div><span class="muted">Próxima:</span> ${p.proxima ? `<b>${fmtDT(p.proxima.inicio)}</b> · ${esc(p.proxima.medico_nome)}<br><span class="small">${[p.proxima.servico_nome, p.proxima.estado_nome].filter(Boolean).map(esc).join(' · ')}</span>` : '—'}</div>
       <div style="margin-top:10px"><span class="muted">Última:</span> ${p.ultima ? `${fmtDT(p.ultima.inicio)} · ${esc(p.ultima.medico_nome)} · ${esc(p.ultima.estado_nome)}` : '—'}</div>
       <h3 style="margin-top:16px">Financeiro</h3>
       <div class="grid g3 small"><div><div class="muted">Faturado</div><b>${eur(p.saldo.faturado)}</b></div><div><div class="muted">Pago</div><b>${eur(p.saldo.pago)}</b></div>
@@ -138,8 +149,9 @@ async function tabResumo(el, p) {
       <div class="grid g3 small"><div><div class="muted">Realizadas</div><b>${p.stats.realizadas || 0}</b></div><div><div class="muted">Faltas</div><b class="${p.stats.faltas ? 'danger' : ''}">${p.stats.faltas || 0}</b></div>
       <div><div class="muted">Desmarcadas</div><b>${p.stats.inativas || 0}</b></div><div><div class="muted">Futuras</div><b>${p.stats.futuras || 0}</b></div><div><div class="muted">Total</div><b>${p.stats.total || 0}</b></div></div></div>
     <div class="card"><h3>Plano de tratamento (${plan.length})</h3>
-      ${plan.length ? plan.slice(0, 8).map(t => `<div class="row between small" style="padding:3px 0;border-bottom:1px solid var(--line2)"><span>${t.dente ? `<b>${esc(t.dente)}</b> ` : ''}${esc(t.descricao)}</span><span class="danger">${eur(t.preco * (1 - (t.desconto_pct || 0) / 100))}</span></div>`).join('')
-        + `<div class="row between" style="margin-top:6px"><b>Por fazer</b><b class="danger">${eur(plan.reduce((s, t) => s + t.preco * (1 - (t.desconto_pct || 0) / 100), 0))}</b></div>` : '<div class="muted">Sem tratamentos planeados</div>'}
+      ${plan.length ? plan.slice(0, 8).map(t => `<div class="row between small" style="padding:3px 0;border-bottom:1px solid var(--line2)"><span>${t.dente ? `<b>${esc(t.dente)}</b> ` : ''}${esc(t.descricao)}</span><span class="danger">${eur(liqTrat(t))}</span></div>`).join('')
+        + (plan.length > 8 ? `<div class="small" style="padding:4px 0"><a href="#/paciente/${p.id}/tratamentos">Ver todos (${plan.length})</a></div>` : '')
+        + `<div class="row between" style="margin-top:6px"><b>Por fazer${plan.length > 8 ? ` (${plan.length})` : ''}</b><b class="danger">${eur(plan.reduce((s, t) => s + liqTrat(t), 0))}</b></div>` : '<div class="muted">Sem tratamentos planeados</div>'}
     </div></div>
     <div class="card"><h3>Últimas notas clínicas</h3>${notas.slice(0, 5).map(n => `<div style="padding:6px 0;border-bottom:1px solid var(--line2)"><div class="muted small">${fmtDT(n.data.replace(' ', 'T'))} · ${esc(n.medico_nome || n.user_nome || '')}</div>${esc(n.texto).replace(/\n/g, '<br>')}</div>`).join('') || '<div class="muted">Sem notas</div>'}</div>`;
 }
@@ -156,7 +168,7 @@ async function tabAnamnese(el, p) {
     <div class="s3" style="padding-top:20px">${chk('hipertensao', a.hipertensao, 'Hipertensão')}${chk('diabetes', a.diabetes, 'Diabetes')}${chk('cardiaco', a.cardiaco, 'Doença cardíaca')}
       ${chk('anticoagulantes', a.anticoagulantes, 'Anticoagulantes')}${chk('hepatite', a.hepatite, 'Hepatite')}${chk('gravidez', a.gravidez, 'Gravidez')}</div>
     <div class="s4" id="an-extra"></div>
-    <div class="s4 row between"><span class="muted small">${a.atualizado_em ? 'Atualizado em ' + esc(a.atualizado_em) : ''}</span><button class="primary" id="an-save">Guardar anamnese</button></div>
+    <div class="s4 row between"><span class="muted small">${a.atualizado_em ? 'Atualizado em ' + fmtDT(a.atualizado_em) : ''}</span><button class="primary" id="an-save">Guardar anamnese</button></div>
   </form></div>`;
   const guardarExtra = await anamneseExtra($('#an-extra', el), p.id);
   $('#an-save').onclick = async () => { await act(async () => { await PUT('anamnese/' + p.id, readForm($('form', el))); await guardarExtra(); }, 'Anamnese guardada'); render(); };
@@ -167,7 +179,7 @@ async function tabNotas(el, p) {
   const notas = await GET(`pacientes/${p.id}/notas`);
   el.innerHTML = `<div class="card"><h3>Nova nota</h3><textarea id="nt-txt" placeholder="Descrição clínica, observações, procedimentos efetuados…" style="min-height:90px"></textarea>
     <div class="row end" style="margin-top:8px">${fld('Médico', sel('nt-med', opts(ativos(L().medicos), App.user.medico_id || p.medico_id, { empty: '—' }), 'id="nt-med"'))}<button class="primary" id="nt-add">Adicionar nota</button></div></div>
-    <div class="card">${notas.map(n => `<div style="padding:10px 0;border-bottom:1px solid var(--line2)"><div class="row between"><span class="muted small">${esc(n.data)} · ${esc(n.medico_nome || '')} ${n.user_nome ? '(registado por ' + esc(n.user_nome) + ')' : ''}</span>
+    <div class="card">${notas.map(n => `<div style="padding:10px 0;border-bottom:1px solid var(--line2)"><div class="row between"><span class="muted small">${fmtDT(n.data)} · ${esc(n.medico_nome || '')} ${n.user_nome ? '(registado por ' + esc(n.user_nome) + ')' : ''}</span>
       <button class="ghost sm icon" data-del="${n.id}" aria-label="Eliminar" title="Eliminar"><i data-ic="trash"></i></button></div>${esc(n.texto).replace(/\n/g, '<br>')}</div>`).join('') || '<div class="empty">Sem notas clínicas</div>'}</div>`;
   $('#nt-add').onclick = async () => {
     const texto = $('#nt-txt').value.trim(); if (!texto) return toast('Escreva a nota', true);
@@ -211,7 +223,9 @@ async function tabTratamentos(el, p) {
   const cont = k => trat.filter(t => t._e === k);
   const vis = st.filtro === 'todos' ? trat : cont(st.filtro);
   const soma = l => l.reduce((s, t) => s + liqTrat(t), 0);
-  const selecionados = trat.filter(t => st.sel.has(t.id));
+  const sels = () => trat.filter(t => st.sel.has(t.id));
+  const selecionados = sels();
+  const todosSel = () => vis.length && vis.every(t => st.sel.has(t.id));
   el.innerHTML = `<div class="card">
     <div class="row" style="margin-bottom:10px">
       <span class="seg st-filtros" role="group" aria-label="Filtrar por estado">
@@ -222,20 +236,20 @@ async function tabTratamentos(el, p) {
     </div>
     <div class="tbl-wrap">${table(vis, [
       { h: '', f: t => `<input type="checkbox" data-sel="${t.id}" ${st.sel.has(t.id) ? 'checked' : ''} aria-label="Selecionar">` },
-      { h: 'Data', f: t => `<span class="num">${fmtDate(t.data)}</span>` }, { h: 'Dente', f: t => `<b class="num">${esc(t.dente || '')}</b>${t.faces ? ' <span class="muted small">' + esc(t.faces) + '</span>' : ''}` },
-      { h: 'Tratamento', f: t => esc(t.descricao) }, { h: 'Médico', f: t => esc(t.medico_nome) },
-      { h: 'Estado', f: t => t.documento_id ? `<a href="#" data-doc="${t.documento_id}" class="plain">${estadoChip(t)}</a>` : estadoChip(t) },
-      { h: 'Valor', cls: 'right', f: t => eur(liqTrat(t)) + (t.desconto_pct ? ` <span class="muted small">-${num(t.desconto_pct)}%</span>` : '') },
-      { h: '', cls: 'right', f: t => `<button class="ghost sm icon" data-ed="${t.id}" aria-label="Editar" title="Editar"><i data-ic="edit"></i></button>${t.documento_id ? '' : `<button class="ghost sm icon" data-del="${t.id}" aria-label="Eliminar" title="Eliminar"><i data-ic="trash"></i></button>`}` },
+      { h: 'Data', cls: 'nowrap', f: t => `<span class="num">${fmtDate(t.data)}</span>` }, { h: 'Dente', cls: 'nowrap', f: t => `<b class="num">${esc(t.dente || '')}</b>${t.faces ? ' <span class="muted small">' + esc(t.faces) + '</span>' : ''}` },
+      { h: 'Tratamento', f: t => esc(t.descricao) }, { h: 'Médico', cls: 'nowrap', f: t => esc(t.medico_nome) },
+      { h: 'Estado', cls: 'nowrap', f: t => t.documento_id ? `<a href="#" data-doc="${t.documento_id}" class="plain">${estadoChip(t)}</a>` : estadoChip(t) },
+      { h: 'Valor', cls: 'right nowrap', f: t => eur(liqTrat(t)) + (t.desconto_pct ? ` <span class="muted small">-${num(t.desconto_pct)}%</span>` : '') },
+      { h: '', cls: 'right nowrap', f: t => `<button class="ghost sm icon" data-ed="${t.id}" aria-label="Editar" title="Editar"><i data-ic="edit"></i></button>${t.documento_id ? '' : `<button class="ghost sm icon" data-del="${t.id}" aria-label="Eliminar" title="Eliminar"><i data-ic="trash"></i></button>`}` },
     ], { empty: st.filtro === 'todos' ? 'Sem tratamentos registados' : 'Nenhum tratamento neste estado', rowCls: t => 'row-' + t._e })}</div>
     <div class="row" style="margin-top:8px">
-      <button class="sm ghost" id="tr-all">${vis.length && vis.every(t => st.sel.has(t.id)) ? 'Desmarcar todos' : 'Selecionar todos'}</button>
+      <button class="sm ghost" id="tr-all">${todosSel() ? 'Desmarcar todos' : 'Selecionar todos'}</button>
       <div class="spacer"></div>
       ${ESTADOS_TRAT.filter(([k]) => cont(k).length).map(([k, l]) => `<span class="small"><span class="st-dot st-${k}"></span>${l.split(' · ')[0]} <b class="num">${eur(soma(cont(k)))}</b></span>`).join('<span class="muted">·</span>')}
     </div>
   </div>
   <div class="actionbar ${selecionados.length ? '' : 'hidden'}" role="region" aria-label="Ações sobre a seleção">
-    <span><b class="num">${selecionados.length}</b> selecionado(s) · <b class="num">${eur(soma(selecionados))}</b></span>
+    <span><b class="num" data-n>${selecionados.length}</b> selecionado(s) · <b class="num" data-v>${eur(soma(selecionados))}</b></span>
     <div class="spacer"></div>
     <button data-act="orc">Orçamento</button>
     <button data-act="agendar">Agendar</button>
@@ -248,19 +262,31 @@ async function tabTratamentos(el, p) {
   </div>`;
   const redo = () => tabTratamentos(el, p);
   $$('.st-filtros [data-f]', el).forEach(b => b.onclick = () => { st.filtro = b.dataset.f; redo(); });
-  $$('[data-sel]', el).forEach(c => c.onchange = () => { c.checked ? st.sel.add(Number(c.dataset.sel)) : st.sel.delete(Number(c.dataset.sel)); redo(); });
-  $('#tr-all', el).onclick = () => { const all = vis.length && vis.every(t => st.sel.has(t.id)); vis.forEach(t => all ? st.sel.delete(t.id) : st.sel.add(t.id)); redo(); };
+  // seleção atualizada no lugar: sem novo pedido nem redesenho, o foco fica na checkbox
+  const sync = () => {
+    const s = sels(), bar = $('.actionbar', el);
+    bar.classList.toggle('hidden', !s.length);
+    $('[data-n]', bar).textContent = s.length; $('[data-v]', bar).textContent = eur(soma(s));
+    $('#tr-all', el).textContent = todosSel() ? 'Desmarcar todos' : 'Selecionar todos';
+  };
+  $$('[data-sel]', el).forEach(c => c.onchange = () => { c.checked ? st.sel.add(Number(c.dataset.sel)) : st.sel.delete(Number(c.dataset.sel)); sync(); });
+  $('#tr-all', el).onclick = () => {
+    const all = todosSel(); vis.forEach(t => all ? st.sel.delete(t.id) : st.sel.add(t.id));
+    $$('[data-sel]', el).forEach(c => { c.checked = st.sel.has(Number(c.dataset.sel)); }); sync();
+  };
   $('#tr-new', el).onclick = () => editTratamento(null, p, redo);
   $$('[data-ed]', el).forEach(b => b.onclick = () => editTratamento(byId(trat, b.dataset.ed), p, redo));
   $$('[data-del]', el).forEach(b => b.onclick = async () => { if (await confirmDlg('Eliminar este tratamento?', 'Eliminar', true)) { await DEL('t/tratamentos/' + b.dataset.del); redo(); } });
   $$('[data-doc]', el).forEach(a => a.onclick = e => { e.preventDefault(); verDocumento(Number(a.dataset.doc)); });
   const done = () => { st.sel.clear(); redo(); };
   $$('[data-act]', el).forEach(b => b.onclick = async () => {
-    const a = b.dataset.act;
+    const a = b.dataset.act, selecionados = sels();
     if (a === 'feito') {
       const l = selecionados.filter(t => t.estado === 'planeado'); if (!l.length) return toast('Nenhum dos selecionados está por fazer', true);
-      for (const t of l) await PUT('t/tratamentos/' + t.id, { estado: 'realizado', data: isoDate() });
-      toast(`${l.length} tratamento(s) marcado(s) como feito`); return done();
+      let n = 0; b.disabled = true;
+      await act(async () => { for (const t of l) { await PUT('t/tratamentos/' + t.id, { estado: 'realizado', data: isoDate() }); n++; } }, `${l.length} tratamento(s) marcado(s) como feito`)
+        .catch(() => toast(`Só ${n} de ${l.length} tratamento(s) ficaram marcados como feito`, true));
+      return done();
     }
     if (a === 'agendar') {
       const l = selecionados.filter(t => t.estado === 'planeado'); if (!l.length) return toast('Selecione tratamentos por fazer', true);
@@ -310,10 +336,18 @@ function editTratamento(t, p, onSaved) {
 async function imprimirFicha(p) {
   const [trat, notas] = await Promise.all([GET(`pacientes/${p.id}/tratamentos`), GET(`pacientes/${p.id}/notas`)]);
   const a = p.anamnese || {};
+  // só os campos preenchidos: "Rótulo: valor · Rótulo: valor"
+  const kv = (pares, sep = ' · ') => pares.filter(([, v]) => v).map(([l, v]) => `${l}: ${esc(v)}`).join(sep);
+  const COND_AN = { hipertensao: 'Hipertensão', diabetes: 'Diabetes', cardiaco: 'Doença cardíaca', anticoagulantes: 'Anticoagulantes', hepatite: 'Hepatite', gravidez: 'Gravidez' };
+  const ident = [kv([['Data nasc.', fmtDate(p.data_nasc)], ['NIF', p.nif], ['SNS', p.sns]]),
+    esc([p.morada, [p.cod_postal, p.localidade].filter(Boolean).join(' ')].filter(Boolean).join(', ')),
+    kv([['Tel.', [p.telemovel, p.telefone].filter(Boolean).join(' / ')], ['E-mail', p.email]]), 'Entidade: ' + esc(p.entidade_nome || 'Particular')].filter(Boolean).join('<br>');
+  const anam = [kv([['Alergias', a.alergias], ['Doenças', a.doencas], ['Medicação', a.medicacao], ['Fumador', a.fumador], ['Observações', a.observacoes]], '<br>'),
+    Object.keys(COND_AN).filter(k => a[k]).map(k => COND_AN[k]).join(' · ')].filter(Boolean).join('<br>');
+  const estadoLbl = t => { const k = estadoTrat(t).k; return ESTADOS_TRAT.find(e => e[0] === k)[1]; };
   printHTML(`<div class="doc"><div class="dh">${cabecalhoClinica()}<div><h2>Ficha clínica</h2>Processo n.º ${esc(p.numero)}<br>${fmtDate(isoDate())}</div></div>
-    <h3>${esc(p.nome)}</h3><p>Data nasc.: ${fmtDate(p.data_nasc)} · NIF: ${esc(p.nif)} · SNS: ${esc(p.sns)}<br>${esc(p.morada)}, ${esc(p.cod_postal)} ${esc(p.localidade)}<br>Tel.: ${esc(p.telemovel)} ${esc(p.telefone)} · ${esc(p.email)}<br>Entidade: ${esc(p.entidade_nome || 'Particular')}</p>
-    <h3>Anamnese</h3><p>Alergias: ${esc(a.alergias || '—')}<br>Doenças: ${esc(a.doencas || '—')}<br>Medicação: ${esc(a.medicacao || '—')}<br>Fumador: ${esc(a.fumador || '—')}
-    ${['hipertensao', 'diabetes', 'cardiaco', 'anticoagulantes', 'hepatite', 'gravidez'].filter(k => a[k]).map(k => ' · ' + k).join('')}</p>
-    <h3>Tratamentos</h3><table><tr><th>Data</th><th>Dente</th><th>Tratamento</th><th>Médico</th><th>Estado</th></tr>${trat.map(t => `<tr><td>${fmtDate(t.data)}</td><td>${esc(t.dente)} ${esc(t.faces)}</td><td>${esc(t.descricao)}</td><td>${esc(t.medico_nome)}</td><td>${esc(t.estado)}</td></tr>`).join('')}</table>
-    <h3>Notas clínicas</h3>${notas.map(n => `<p><b>${esc(n.data)}</b> ${esc(n.medico_nome || '')}<br>${esc(n.texto).replace(/\n/g, '<br>')}</p>`).join('') || '<p>—</p>'}</div>`);
+    <h3>${esc(p.nome)}</h3><p>${ident}</p>
+    <h3>Anamnese</h3><p>${anam || 'Sem registo'}</p>
+    <h3>Tratamentos</h3>${trat.length ? `<table><tr><th>Data</th><th>Dente</th><th>Tratamento</th><th>Médico</th><th>Estado</th></tr>${trat.map(t => `<tr><td>${fmtDate(t.data)}</td><td>${esc([t.dente, t.faces].filter(Boolean).join(' '))}</td><td>${esc(t.descricao)}</td><td>${esc(t.medico_nome)}</td><td>${esc(estadoLbl(t))}</td></tr>`).join('')}</table>` : '<p>Sem tratamentos</p>'}
+    <h3>Notas clínicas</h3>${notas.map(n => `<p><b>${fmtDT(n.data)}</b> ${esc(n.medico_nome || '')}<br>${esc(n.texto).replace(/\n/g, '<br>')}</p>`).join('') || '<p>Sem notas</p>'}</div>`);
 }
