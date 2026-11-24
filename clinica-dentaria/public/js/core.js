@@ -35,7 +35,9 @@ function debounce(fn, ms = 250) { let t; return (...a) => { clearTimeout(t); t =
 async function api(method, url, body) {
   const opt = { method, headers: {} };
   if (body !== undefined) { opt.headers['Content-Type'] = 'application/json'; opt.body = JSON.stringify(body); }
-  const r = await fetch('/api/' + url.replace(/^\//, ''), opt);
+  let r;
+  try { r = await fetch('/api/' + url.replace(/^\//, ''), opt); }
+  catch (e) { if (e instanceof TypeError) throw new Error('Sem ligação ao servidor'); throw e; }
   if (r.status === 401 && !url.startsWith('login')) { showLogin(); throw new Error('Sessão expirada'); }
   const ct = r.headers.get('content-type') || '';
   const data = ct.includes('json') ? await r.json() : await r.text();
@@ -64,24 +66,51 @@ async function act(fn, okMsg) {
 }
 
 // ---------- modais ----------
+const FOCAVEIS = 'a[href], button:not([disabled]), input:not([type=hidden]):not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+let modalSeq = 0;
 function modal({ title, body = '', size = '', buttons = [], onOpen }) {
+  const opener = document.activeElement;
+  const hid = 'mdl-h' + (++modalSeq);
   const bg = document.createElement('div');
   bg.className = 'modal-bg';
-  bg.innerHTML = `<div class="modal ${size}"><header><h2>${esc(title)}</h2><button class="ghost icon" data-x aria-label="Fechar"><i data-ic="x"></i></button></header>
+  bg.innerHTML = `<div class="modal ${size}" role="dialog" aria-modal="true" aria-labelledby="${hid}"><header><h2 id="${hid}">${esc(title)}</h2><button class="ghost icon" data-x aria-label="Fechar"><i data-ic="x"></i></button></header>
     <div class="body"></div><footer></footer></div>`;
   const bodyEl = $('.body', bg);
   if (typeof body === 'string') bodyEl.innerHTML = body; else bodyEl.appendChild(body);
   const foot = $('footer', bg);
-  const close = () => { bg.remove(); document.removeEventListener('keydown', onKey); };
-  const onKey = e => { if (e.key === 'Escape' && document.body.lastElementChild === bg) close(); };
+  // alterações por guardar: só contam as feitas pelo utilizador (eventos input)
+  let dirty = false;
+  bodyEl.addEventListener('input', () => { dirty = true; });
+  const close = () => {
+    if (!bg.isConnected) return;
+    bg.remove(); document.removeEventListener('keydown', onKey);
+    if (opener && opener.isConnected && opener.focus) opener.focus();
+  };
+  // fecho pedido pelo utilizador (Esc, X, fundo, Cancelar): confirma se há alterações
+  const dismiss = async () => {
+    if (dirty && !(await confirmDlg('Há alterações por guardar. Fechar sem guardar?', 'Fechar sem guardar', true))) return;
+    close();
+  };
+  const onKey = e => {
+    if (document.body.lastElementChild !== bg) return;
+    if (e.key === 'Escape') { if (!e.defaultPrevented) { e.preventDefault(); dismiss(); } return; }
+    if (e.key !== 'Tab') return;
+    const f = $$(FOCAVEIS, bg).filter(x => x.getClientRects().length);
+    if (!f.length) return;
+    const first = f[0], last = f[f.length - 1], a = document.activeElement;
+    if (!bg.contains(a)) { e.preventDefault(); (e.shiftKey ? last : first).focus(); }
+    else if (e.shiftKey && a === first) { e.preventDefault(); last.focus(); }
+    else if (!e.shiftKey && a === last) { e.preventDefault(); first.focus(); }
+  };
   document.addEventListener('keydown', onKey);
+  bg._close = close; bg._dirty = () => dirty;
   const ctx = { el: bg, body: bodyEl, close };
   for (const b of buttons) {
     const btn = document.createElement('button');
     btn.textContent = b.label; btn.className = b.cls || '';
     if (b.left) btn.style.marginRight = 'auto';
     btn.onclick = async () => {
-      if (!b.onClick) return close();
+      if (!b.onClick) return dismiss();
       btn.disabled = true;
       try { const r = await b.onClick(ctx); if (r !== false) close(); }
       catch (e) { toast(e.message, true); }
@@ -90,13 +119,16 @@ function modal({ title, body = '', size = '', buttons = [], onOpen }) {
     foot.appendChild(btn);
   }
   if (!buttons.length) foot.remove();
-  $('[data-x]', bg).onclick = close;
+  $('[data-x]', bg).onclick = dismiss;
   bg.addEventListener('mousedown', e => { if (e.target === bg) bg.dataset.down = '1'; });
-  bg.addEventListener('mouseup', e => { if (e.target === bg && bg.dataset.down) close(); delete bg.dataset.down; });
+  bg.addEventListener('mouseup', e => { if (e.target === bg && bg.dataset.down) dismiss(); delete bg.dataset.down; });
   document.body.appendChild(bg);
   if (onOpen) onOpen(ctx);
-  const first = $('input:not([type=hidden]):not([readonly]), select, textarea', bodyEl);
-  if (first) setTimeout(() => first.focus(), 30);
+  const first = $('[autofocus]', bodyEl) || $('input:not([type=hidden]):not([readonly]), select, textarea', bodyEl);
+  setTimeout(() => {
+    if (!bg.isConnected || bg.contains(document.activeElement)) return;
+    (first || $('footer button.primary', bg) || $('[data-x]', bg)).focus();
+  }, 30);
   return ctx;
 }
 function confirmDlg(msg, okLabel = 'Confirmar', danger = false) {
@@ -125,7 +157,18 @@ function opts(list, value, { label = 'nome', empty = null, only = null } = {}) {
 function optsArr(arr, value) { // arr: [[valor, rótulo]] ou ['valor']
   return arr.map(a => { const [v, l] = Array.isArray(a) ? a : [a, a]; return `<option value="${esc(v)}" ${String(v) === String(value ?? '') ? 'selected' : ''}>${esc(l)}</option>`; }).join('');
 }
-function fld(label, input, cls = '') { return `<div class="field ${cls}"><label class="f">${esc(label)}</label>${input}</div>`; }
+// o rótulo fica associado ao 1.º campo (usa o id que já tenha ou gera um)
+let fldSeq = 0;
+function fld(label, input, cls = '') {
+  let id = '';
+  const html = String(input).replace(/<(input|select|textarea)\b([^>]*)>/gi, (m, tag, attrs) => {
+    if (id || /\btype\s*=\s*["']?(hidden|checkbox|radio)\b/i.test(attrs)) return m;
+    const ex = attrs.match(/(?:^|\s)id\s*=\s*["']([^"']+)["']/i);
+    if (ex) { id = ex[1]; return m; }
+    id = 'fld-' + (++fldSeq); return `<${tag} id="${id}"${attrs}>`;
+  });
+  return `<div class="field ${cls}"><label class="f"${id ? ` for="${esc(id)}"` : ''}>${esc(label)}</label>${html}</div>`;
+}
 function inp(name, value, attrs = '') { return `<input name="${name}" value="${esc(value ?? '')}" ${attrs}>`; }
 function sel(name, optionsHtml, attrs = '') { return `<select name="${name}" ${attrs}>${optionsHtml}</select>`; }
 function txt(name, value, attrs = '') { return `<textarea name="${name}" ${attrs}>${esc(value ?? '')}</textarea>`; }
@@ -152,9 +195,13 @@ function table(rows, cols, { onClick, empty = 'Sem registos', rowCls, foot } = {
       if (e.target.closest('button, a, input, select')) return;
       const tr = e.target.closest('tr[data-i]'); if (tr) onClick(rows[Number(tr.dataset.i)], e);
     });
+    t.addEventListener('keydown', e => {
+      if ((e.key !== 'Enter' && e.key !== ' ') || !e.target.matches('tr[data-i]')) return;
+      e.preventDefault(); onClick(rows[Number(e.target.dataset.i)], e);
+    });
   });
   return `<table class="t" id="${id}"><thead><tr>${cols.map(c => `<th class="${c.cls || ''}">${esc(c.h)}</th>`).join('')}</tr></thead>
-    <tbody>${rows.map((r, i) => `<tr data-i="${i}" class="${onClick ? 'click' : ''} ${rowCls ? rowCls(r) : ''}">${cols.map(c => `<td class="${c.cls || ''}">${c.f(r)}</td>`).join('')}</tr>`).join('')}</tbody>
+    <tbody>${rows.map((r, i) => `<tr data-i="${i}"${onClick ? ' tabindex="0"' : ''} class="${onClick ? 'click' : ''} ${rowCls ? rowCls(r) : ''}">${cols.map(c => `<td class="${c.cls || ''}">${c.f(r)}</td>`).join('')}</tr>`).join('')}</tbody>
     ${foot ? `<tfoot><tr>${foot}</tr></tfoot>` : ''}</table>`;
 }
 
@@ -182,35 +229,55 @@ function cabecalhoClinica() {
 // ---------- seletor de paciente (autocomplete) ----------
 function patientPicker(input, onSelect) {
   const wrap = input.parentElement; wrap.classList.add('ac');
-  let list = null, items = [], idx = -1;
+  const podeCriar = typeof editPaciente === 'function';
+  let list = null, items = [], idx = -1, seq = 0, q = '';
   const close = () => { if (list) list.remove(); list = null; idx = -1; };
   const render = () => {
     close();
     list = document.createElement('div'); list.className = 'ac-list';
-    if (!items.length) list.innerHTML = '<div class="muted">Sem resultados</div>';
+    if (!items.length) list.innerHTML = '<div class="muted" data-none>Sem resultados</div>';
     items.forEach((p, i) => {
       const d = document.createElement('div');
       d.innerHTML = `<b>${esc(p.nome)}</b> <span class="muted small">n.º ${esc(p.numero)}${p.nif ? ' · NIF ' + esc(p.nif) : ''}${p.telemovel ? ' · ' + esc(p.telemovel) : ''}</span>`;
       d.onmousedown = e => { e.preventDefault(); choose(i); };
       list.appendChild(d);
     });
+    if (podeCriar) {
+      const d = document.createElement('div');
+      d.innerHTML = `<span style="color:var(--blue-ink)">+ Criar paciente «${esc(q)}»</span>`;
+      d.onmousedown = e => { e.preventDefault(); choose(items.length); };
+      list.appendChild(d);
+    }
     wrap.appendChild(list);
   };
-  const choose = i => { const p = items[i]; if (!p) return; close(); onSelect(p); };
+  // abre "Novo paciente" com o nome pesquisado (editPaciente ignora o 3.º argumento se não o suportar: preenche-se aqui)
+  const criar = async nome => {
+    await editPaciente(null, p => onSelect(p), { nome });
+    const m = $$('.modal-bg').pop(), n = m && $('input[name=nome]', m);
+    if (n && !n.value) { n.value = nome; n.focus(); }
+  };
+  const choose = i => {
+    if (podeCriar && i === items.length) { close(); return criar(q); }
+    const p = items[i]; if (!p) return; close(); onSelect(p);
+  };
   const search = debounce(async () => {
-    const q = input.value.trim();
-    if (q.length < 2) return close();
-    items = await GET('pacientes?limit=15&q=' + encodeURIComponent(q)); render();
+    const my = seq, v = input.value.trim();
+    if (v.length < 2) return close();
+    let r;
+    try { r = await GET('pacientes?limit=15&q=' + encodeURIComponent(v)); }
+    catch (e) { if (my === seq) toast(e.message, true); return; }
+    if (my !== seq) return; // resposta antiga: entretanto o texto mudou
+    items = r; q = v; render();
   }, 200);
-  input.addEventListener('input', search);
+  input.addEventListener('input', () => { seq++; search(); });
   input.addEventListener('blur', () => setTimeout(close, 150));
   input.addEventListener('keydown', e => {
     if (!list) return;
-    const els = $$('div', list);
-    if (e.key === 'ArrowDown') { idx = Math.min(idx + 1, items.length - 1); e.preventDefault(); }
+    const els = $$('div:not([data-none])', list);
+    if (e.key === 'ArrowDown') { idx = Math.min(idx + 1, els.length - 1); e.preventDefault(); }
     else if (e.key === 'ArrowUp') { idx = Math.max(idx - 1, 0); e.preventDefault(); }
-    else if (e.key === 'Enter') { e.preventDefault(); choose(idx < 0 ? 0 : idx); return; }
-    else if (e.key === 'Escape') return close();
+    else if (e.key === 'Enter') { e.preventDefault(); if (els.length) choose(idx < 0 ? 0 : idx); return; }
+    else if (e.key === 'Escape') { e.preventDefault(); return close(); }
     els.forEach((el, i) => el.classList.toggle('sel', i === idx));
   });
 }
@@ -291,16 +358,35 @@ function secTabs(items, active) {
 // ---------- router ----------
 function route(name, fn) { App.routes[name] = fn; }
 function go(hash) { if (location.hash === hash) render(); else location.hash = hash; }
+let renderSeq = 0, lastHash = location.hash;
 async function render() {
   const [name, ...params] = location.hash.replace(/^#\/?/, '').split('/');
   const r = App.routes[name || 'inicio'] || App.routes.inicio;
   const sec = { orcamentos: 'faturacao', estatisticas: 'listagens', paciente: 'pacientes', consulta: 'agenda' }[name] || name || 'inicio';
   $$('#nav a').forEach(a => a.classList.toggle('active', a.dataset.r === sec));
-  const view = $('#view');
-  App.current = name;
+  const view = $('#view'), bar = $('#busy'), my = ++renderSeq;
+  App.current = name; App.dirty = false; lastHash = location.hash;
+  view.setAttribute('aria-busy', 'true');
+  const t = setTimeout(() => bar && bar.classList.add('on'), 300);
   try { await r(view, params.map(decodeURIComponent)); }
   catch (e) { if (e.message !== 'Sessão expirada') view.innerHTML = `<div class="alert danger">${esc(e.message)}</div>`; console.error(e); }
+  finally {
+    clearTimeout(t);
+    if (my === renderSeq) { view.removeAttribute('aria-busy'); if (bar) bar.classList.remove('on'); }
+  }
 }
-window.addEventListener('hashchange', () => { $$('.modal-bg').forEach(m => m.remove()); render(); });
+// formulário da página com alterações por guardar (ficha, anamnese, configuração, notas)
+document.addEventListener('input', e => { if (e.target.closest('#view form.form-grid, #view textarea, #view [data-dirty]')) App.dirty = true; });
+const temAlteracoes = () => App.dirty || $$('.modal-bg').some(m => m._dirty && m._dirty());
+const fecharModais = () => $$('.modal-bg').forEach(m => m._close ? m._close() : m.remove());
+window.addEventListener('hashchange', async () => {
+  const to = location.hash;
+  if (temAlteracoes()) {
+    history.replaceState(null, '', lastHash); // fica na página até o utilizador confirmar
+    if (!(await confirmDlg('Há alterações por guardar. Sair sem guardar?', 'Sair sem guardar', true))) return;
+    App.dirty = false; fecharModais(); location.hash = to; return;
+  }
+  fecharModais(); render();
+});
 
 function showLogin() { $('#app').classList.add('hidden'); $('#login').classList.remove('hidden'); }

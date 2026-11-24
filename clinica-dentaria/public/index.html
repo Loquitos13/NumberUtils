@@ -6,14 +6,22 @@
   <title>Clínica Dentária — Gestão</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='22' fill='%23162c5b'/><path d='M30 28c8-6 14 2 20 2s12-8 20-2 6 22 0 30-6 20-10 20-6-14-10-14-6 14-10 14-4-12-10-20-8-24 0-30z' fill='%23fbfaf7'/></svg>">
   <link rel="stylesheet" href="app.css">
+  <style>
+    /* barra de carregamento: só aparece se a página demorar mais de 300 ms (core.js render) */
+    #busy { position: fixed; top: 0; left: 0; right: 0; height: 2px; z-index: 300; overflow: hidden; pointer-events: none; opacity: 0; transition: opacity .15s; }
+    #busy.on { opacity: 1; }
+    #busy::after { content: ""; position: absolute; inset: 0; width: 30%; background: var(--blue); animation: busy 1.1s cubic-bezier(.4, 0, .2, 1) infinite; }
+    @keyframes busy { from { transform: translateX(-100%); } to { transform: translateX(340%); } }
+    @media (prefers-reduced-motion: reduce) { #busy::after { width: 100%; animation: none; } }
+  </style>
 </head>
 <body>
   <div id="login" class="hidden">
     <form id="login-form">
       <h1 class="brandmark"><i data-ic="tooth"></i> OralSaúde</h1>
       <p class="muted" id="login-clinica">Inicie sessão para continuar</p>
-      <div class="field"><label class="f">Utilizador</label><input name="login" autocomplete="username" required autofocus></div>
-      <div class="field"><label class="f">Palavra-passe</label><input name="password" type="password" autocomplete="current-password" required></div>
+      <div class="field"><label class="f" for="lg-u">Utilizador</label><input id="lg-u" name="login" autocomplete="username" required autofocus></div>
+      <div class="field"><label class="f" for="lg-p">Palavra-passe</label><input id="lg-p" name="password" type="password" autocomplete="current-password" required></div>
       <div id="login-err" class="alert danger hidden"></div>
       <button class="primary" style="width:100%;justify-content:center;margin-top:6px">Entrar</button>
     </form>
@@ -23,9 +31,9 @@
     <form id="trocar-pw" style="background:var(--sheet);padding:24px;border-radius:var(--r-lg);width:360px;box-shadow:0 24px 60px rgba(0,0,0,.3)">
       <h1>Defina a sua palavra-passe</h1>
       <p class="muted">Por segurança, tem de escolher uma palavra-passe nova antes de continuar (mínimo 8 caracteres).</p>
-      <div class="field"><label class="f">Palavra-passe atual</label><input name="atual" type="password" autocomplete="current-password" required></div>
-      <div class="field"><label class="f">Nova palavra-passe</label><input name="nova" type="password" autocomplete="new-password" minlength="8" required></div>
-      <div class="field"><label class="f">Repetir a nova</label><input name="nova2" type="password" autocomplete="new-password" minlength="8" required></div>
+      <div class="field"><label class="f" for="tp-a">Palavra-passe atual</label><input id="tp-a" name="atual" type="password" autocomplete="current-password" required></div>
+      <div class="field"><label class="f" for="tp-n">Nova palavra-passe</label><input id="tp-n" name="nova" type="password" autocomplete="new-password" minlength="8" required></div>
+      <div class="field"><label class="f" for="tp-n2">Repetir a nova</label><input id="tp-n2" name="nova2" type="password" autocomplete="new-password" minlength="8" required></div>
       <div id="trocar-err" class="alert danger hidden"></div>
       <button class="primary" style="width:100%;justify-content:center">Guardar e entrar</button>
     </form>
@@ -36,21 +44,22 @@
       <div class="logo"><i data-ic="tooth"></i><span>OralSaúde<small id="side-clinica"></small></span></div>
       <nav id="nav"></nav>
       <div class="user"><div class="nm" id="user-name"></div>
-        <button class="sm" id="btn-pass" title="Alterar palavra-passe" aria-label="Alterar palavra-passe" class="sm icon"><i data-ic="key"></i></button>
+        <button class="sm icon" id="btn-pass" title="Alterar palavra-passe" aria-label="Alterar palavra-passe"><i data-ic="key"></i></button>
         <button class="sm" id="btn-logout">Sair</button></div>
     </aside>
     <main id="main">
       <div id="topbar">
-        <div class="search ac"><input id="global-search" placeholder="Pesquisar paciente (nome, NIF, telemóvel, n.º)…  [Ctrl+K]"></div>
+        <div class="search ac"><input id="global-search" aria-label="Pesquisar paciente" placeholder="Pesquisar paciente (nome, NIF, telemóvel, n.º)…  [Ctrl+K]" autocomplete="off"></div>
         <div class="spacer"></div>
-        <button class="primary" id="btn-new-marc">Nova marcação</button>
+        <button class="primary" id="btn-new-marc" title="Nova marcação [Alt+N]" aria-keyshortcuts="Alt+N">Nova marcação</button>
         <button id="btn-new-pac">Novo paciente</button>
       </div>
       <div id="view"></div>
     </main>
   </div>
 
-  <div id="toasts"></div>
+  <div id="busy" aria-hidden="true"></div>
+  <div id="toasts" role="status" aria-live="polite"></div>
   <div id="print-area"></div>
 
   <script src="js/core.js"></script>
