@@ -7,7 +7,8 @@
   "scripts": {
     "start": "node server.js",
     "test": "node --test",
-    "e2e": "node e2e/usabilidade.js"
+    "e2e": "node e2e/usabilidade.js",
+    "stress": "node stress/ataque.js"
   },
   "engines": {
     "node": ">=22.13"
