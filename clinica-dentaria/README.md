@@ -22,7 +22,9 @@ Variáveis opcionais: `PORT=8080` (porta) e `DATA_DIR=/caminho` (pasta da base d
 ### Primeiro acesso
 No primeiro arranque a app cria o utilizador **`admin`** com uma **palavra-passe aleatória**, que aparece na janela do servidor e fica guardada em `data/PRIMEIRO-ACESSO.txt`. No primeiro login é obrigatório escolher uma palavra-passe nova (mínimo 8 caracteres); o ficheiro é apagado nesse momento. Depois, em *Configuração → Utilizadores*, crie as contas da equipa — cada pessoa define a sua palavra-passe no primeiro acesso.
 
-Segurança: 5 tentativas falhadas bloqueiam esse posto durante 10 minutos; as sessões expiram ao fim de 12 horas.
+Segurança: 5 tentativas falhadas no mesmo posto bloqueiam esse posto durante 10 minutos; 10 falhas na mesma conta a partir do mesmo posto bloqueiam essa conta nesse posto durante 15 minutos (os outros postos continuam a entrar com a palavra-passe certa); a partir de 3 falhas numa conta, vindas de qualquer posto, cada nova tentativa espera um pouco (no máximo 5 s). Um login certo limpa os contadores. As sessões expiram ao fim de 12 horas.
+
+Atrás de um proxy (HTTPS ou outro), o proxy tem de passar o `Host` original ou o cabeçalho `X-Forwarded-Host`: os pedidos que alteram dados só são aceites se a origem (`Origin`) coincidir com esse anfitrião.
 
 Permissões: médicos, receção e assistentes veem toda a ficha clínica (notas, anamnese, ficheiros), por decisão da clínica — a receção precisa dessa informação para falar com o paciente e agendar. Só o administrador apaga tratamentos já realizados e próteses, altera a configuração e gere utilizadores; tratamentos planeados e condições do odontograma podem ser apagados por qualquer perfil (correção do plano no dia a dia), ficando registado no log. Tratamentos faturados não se apagam (nota de crédito).
 
@@ -30,6 +32,7 @@ A base de dados nova começa **vazia** (só com a tabela de tratamentos/preços,
 
 ### Testes
 `npm test` corre os testes automáticos da faturação, recibos, saldos e permissões (numa base de dados temporária).
+`npm run e2e` corre os testes de usabilidade no browser (precisa do Playwright instalado à parte); `npm run stress` corre o teste de carga e ataques contra um servidor temporário e termina com OK ou com a lista do que falhou.
 
 ## Módulos
 
