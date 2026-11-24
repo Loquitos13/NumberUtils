@@ -18,12 +18,6 @@ try { pw = require('playwright'); } catch {
 // Problemas conhecidos da aplicação: são verificados e reportados, mas não falham a execução.
 // Quando um destes passar a "ok", retire-o daqui.
 const CONHECIDOS = {
-  'Teclado: modal prende o foco (Tab)': 'public/js/core.js modal(): Tab sai do modal para a página por trás — prender o foco entre o primeiro e o último elemento focável.',
-  'Teclado: foco volta ao botão que abriu o modal': 'public/js/core.js modal(): guardar document.activeElement ao abrir e fazer .focus() nele em close().',
-  'Teclado: FR a partir de tratamentos': 'public/js/pacientes.js tabTratamentos(): marcar a caixa redesenha a tabela (redo) e o foco perde-se para <body> — repor o foco na caixa após redesenhar.',
-  'Acessibilidade: campos com nome acessível': 'public/js/core.js fld(): <label class="f"> não está associado ao campo — gerar id e usar <label for>, ou envolver o campo no <label>.',
-  'Acessibilidade: contraste ≥ 4,5:1': 'public/app.css:204 .mini-cal td.other (#a9afb8 sobre branco = 2,2:1) — usar var(--muted) #626872 e distinguir os dias de outro mês com peso/fundo.',
-  'Responsivo: alvos de toque ≥ 32px (tablet)': 'public/app.css: button.sm / .tabs / inputs com altura < 32px — @media (pointer: coarse) { button, input, select { min-height: 32px } }.',
 };
 
 // ---------- servidor ----------
@@ -362,6 +356,9 @@ async function main() {
       });
     }
     await check('Responsivo: alvos de toque ≥ 32px (tablet)', async () => {
+      // ecrã tátil (pointer: coarse), como num tablet: é aí que as regras de toque do app.css se aplicam
+      const cdp = await ctx.newCDPSession(page); await cdp.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 });
+      assert.ok(await page.evaluate(() => matchMedia('(pointer: coarse)').matches), 'emulação de toque ativa');
       await page.setViewportSize({ width: 1024, height: 768 }); const maus = []; let total = 0;
       for (const h of ['#/inicio', '#/agenda', '#/pacientes', '#/paciente/1/tratamentos', '#/faturacao']) {
         await nav(h);
@@ -370,6 +367,7 @@ async function main() {
           .map(([e, b]) => ({ ok: b.height >= 32 && b.width >= 32, d: `${e.tagName.toLowerCase()} "${(e.innerText || e.name || '').trim().slice(0, 14)}" ${Math.round(b.width)}×${Math.round(b.height)}` })));
         total += r.length; maus.push(...r.filter(x => !x.ok).map(x => `${h} ${x.d}`));
       }
+      await cdp.send('Emulation.setTouchEmulationEnabled', { enabled: false }); await cdp.detach();
       assert.equal(maus.length, 0, `${maus.length}/${total} alvos pequenos, ex.: ${maus.slice(0, 3).join(' | ')}`);
     });
     await page.setViewportSize({ width: 1366, height: 768 });

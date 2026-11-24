@@ -15,8 +15,8 @@ route('pacientes', async (view) => {
   const load = async () => {
     rows = await GET(`pacientes?limit=${lim}&ativos=${$('#pl-inat').checked ? 0 : 1}&q=${encodeURIComponent($('#pl-q').value)}`);
     $('#pl-res').innerHTML = `<div class="tbl-wrap">${table(rows, cols, { onClick: p => go('#/paciente/' + p.id), rowCls: p => p.ativo ? '' : 'off' })}</div>
-      <div class="row muted small" style="margin-top:6px">${rows.length} paciente(s)${rows.length >= lim ? ` (mostrando os primeiros ${lim}) <button class="sm" id="pl-mais">Mostrar mais</button>` : ''}</div>`;
-    const mais = $('#pl-mais'); if (mais) mais.onclick = () => { lim += 500; load(); };
+      <div class="row muted small" style="margin-top:6px">${rows.length} paciente(s)${rows.length >= lim ? (lim < 1000 ? ` (mostrando os primeiros ${lim}) <button class="sm" id="pl-mais">Mostrar mais</button>` : ' (máximo de 1000 — use a pesquisa para encontrar os restantes)') : ''}</div>`;
+    const mais = $('#pl-mais'); if (mais) mais.onclick = () => { lim = Math.min(lim + 500, 1000); load(); };
   };
   const reset = () => { lim = 500; load(); };
   $('#pl-q').oninput = debounce(reset); $('#pl-inat').onchange = reset;

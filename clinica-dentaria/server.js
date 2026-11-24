@@ -851,6 +851,8 @@ async function api(req, res, url) {
     let host; try { host = new URL(req.headers.origin).host; } catch { host = null; }
     if (host !== req.headers.host) throw new HttpError(403, 'Origem do pedido não permitida');
   }
+  // sem sessão, recusa antes de ler/analisar o corpo (não gasta CPU nem memória com pedidos anónimos)
+  if (parts[0] !== 'login' && !currentUser(req)) { res.setHeader('Connection', 'close'); throw new HttpError(401, 'Sessão expirada. Inicie sessão novamente.'); }
   const binario = m === 'POST' && parts[0] === 'pacientes' && parts[2] === 'anexos'; // upload: corpo binário, lido em anexos.js
   const body = ['POST', 'PUT'].includes(m) && !binario ? await readBody(req, res, parts[0] === 'login' ? 64e3 : 5e6) : {};
 
@@ -1036,6 +1038,7 @@ async function api(req, res, url) {
     }
     case 'agenda': {
       const de = q.get('de') || today(); const ate = q.get('ate') || de;
+      if (!((Date.parse(ate) - Date.parse(de)) / 864e5 <= 366)) throw new HttpError(400, 'Escolha um intervalo de datas válido, até 1 ano');
       const where = ['m.inicio >= ?', 'm.inicio <= ?']; const params = [de, ate + 'T23:59'];
       if (q.get('medico_id')) { where.push('m.medico_id = ?'); params.push(q.get('medico_id')); }
       if (q.get('gabinete_id')) { where.push('m.gabinete_id = ?'); params.push(q.get('gabinete_id')); }
@@ -1169,6 +1172,12 @@ async function api(req, res, url) {
         ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ORDER BY pr.data_prevista, pr.id DESC`, ...params);
     }
     case 'estatisticas': return estatisticas(q);
+    case 'revisoes': // última consulta realizada há mais de um ano e nenhuma marcação futura
+      return all(`SELECT p.id, p.numero, p.nome, p.telemovel, p.email, p.sms_ok, u.ultima FROM pacientes p
+        JOIN (SELECT m.paciente_id, MAX(m.inicio) ultima FROM marcacoes m JOIN estados e ON e.id=m.estado_id WHERE e.categoria='REALIZADAS' GROUP BY m.paciente_id) u ON u.paciente_id=p.id
+        WHERE p.ativo=1 AND u.ultima < date('now','localtime','-1 year')
+          AND NOT EXISTS (SELECT 1 FROM marcacoes f LEFT JOIN estados fe ON fe.id=f.estado_id WHERE f.paciente_id=p.id AND f.inicio > datetime('now','localtime') AND COALESCE(fe.categoria,'OUTRAS') NOT IN ('INATIVAS','FALTAS'))
+        ORDER BY u.ultima`);
     case 'aniversarios': {
       const de = q.get('de') || today(); const ate = q.get('ate') || de;
       const md = s => s.slice(5);

@@ -124,9 +124,9 @@ route('stocks', async (view, [sub = 'existencias']) => {
   const familias = [...new Set(rows.map(r => r.familia).filter(Boolean))].sort();
   body.innerHTML = `<div class="card"><div class="row" style="margin-bottom:10px">
     <input id="st-q" placeholder="Pesquisar produto…" style="max-width:280px">
-    <select id="st-arm" style="width:auto">${opts(ativos(L().armazens), arm, { empty: 'Todos os armazéns' })}</select>
-    <select id="st-fam" style="width:auto"><option value="">Todas as famílias</option>${familias.map(f => `<option>${esc(f)}</option>`).join('')}</select>
-    <select id="st-al" style="width:auto">${optsArr([['', 'Todos'], ['alerta', 'Só com alertas']])}</select><div class="spacer"></div><button id="st-csv">Exportar</button></div>
+    <select id="st-arm" aria-label="Armazém" style="width:auto">${opts(ativos(L().armazens), arm, { empty: 'Todos os armazéns' })}</select>
+    <select id="st-fam" aria-label="Família" style="width:auto"><option value="">Todas as famílias</option>${familias.map(f => `<option>${esc(f)}</option>`).join('')}</select>
+    <select id="st-al" aria-label="Alertas" style="width:auto">${optsArr([['', 'Todos'], ['alerta', 'Só com alertas']])}</select><div class="spacer"></div><button id="st-csv">Exportar</button></div>
     <div class="legend" style="margin-bottom:8px"><span><span class="badge danger">negativo / abaixo do mínimo</span></span><span><span class="badge warn">abaixo do ideal</span></span><span><span class="badge info">validade ≤ 60 dias</span></span></div>
     <div id="st-tbl"></div></div>`;
   const cols = [{ h: 'Código', f: r => esc(r.codigo) }, { h: 'Produto', f: r => `<b>${esc(r.nome)}</b>` }, { h: 'Família', f: r => esc(r.familia) },
@@ -189,7 +189,7 @@ route('estatisticas', async (view) => {
   const st0 = view.dataset.p ? JSON.parse(view.dataset.p) : { de: isoDate().slice(0, 8) + '01', ate: isoDate() };
   view.innerHTML = `<div class="page-head"><h1>Relatórios</h1><div class="spacer"></div>
     <div class="row">${['mes', 'mesant', 'ano'].map(k => `<button class="sm" data-pr="${k}">${{ mes: 'Este mês', mesant: 'Mês anterior', ano: 'Este ano' }[k]}</button>`).join('')}
-    <input type="date" id="es-de" value="${st0.de}" style="width:auto"> <input type="date" id="es-ate" value="${st0.ate}" style="width:auto"></div></div>${secTabs(SEC_REL, '#/estatisticas')}<div id="es-body"></div>`;
+    <input type="date" id="es-de" aria-label="De" value="${st0.de}" style="width:auto"> <input type="date" id="es-ate" aria-label="Até" value="${st0.ate}" style="width:auto"></div></div>${secTabs(SEC_REL, '#/estatisticas')}<div id="es-body"></div>`;
   const load = async () => {
     const de = $('#es-de').value, ate = $('#es-ate').value;
     view.dataset.p = JSON.stringify({ de, ate });
@@ -251,11 +251,7 @@ route('comunicacao', async (view, [sub = 'aniversarios']) => {
       .map(m => ({ id: m.paciente_id, nome: m.paciente_nome, telemovel: m.paciente_telemovel, info: `Faltou a ${fmtDT(m.inicio)} (${m.medico_nome})` }));
     modeloNome = 'Falta à consulta'; body.innerHTML = '<p class="muted">Pacientes que faltaram nos últimos 30 dias.</p>';
   } else if (sub === 'revisao') {
-    const [pacs, ms] = await Promise.all([GET('pacientes?limit=5000'), GET(`agenda?de=${addDays(isoDate(), -730)}&ate=${addDays(isoDate(), 365)}`)]);
-    const last = {}; const fut = new Set();
-    for (const m of ms) { if (m.inicio.slice(0, 10) > isoDate()) fut.add(m.paciente_id); else if (m.estado_categoria === 'REALIZADAS') last[m.paciente_id] = m.inicio; }
-    const lim = addDays(isoDate(), -365);
-    rows = pacs.filter(p => !fut.has(p.id) && last[p.id] && last[p.id] < lim).map(p => ({ ...p, info: 'Última consulta: ' + fmtDate(last[p.id]) }));
+    rows = (await GET('revisoes')).map(p => ({ ...p, info: 'Última consulta: ' + fmtDate(p.ultima) }));
     modeloNome = 'Revisão anual'; body.innerHTML = '<p class="muted">Pacientes cuja última consulta realizada foi há mais de um ano e sem marcação futura.</p>';
   }
   const modelos = ativos(L().sms_modelos);

@@ -192,3 +192,24 @@ test('mudar a palavra-passe termina as outras sessões do utilizador', async () 
   assert.equal((await api('GET', 'me', null, esta)).status, 200);
   await ok('POST', 'password', { atual: 'outra-nova-boa', nova: 'uma-nova-boa' }, esta);
 });
+
+test('agenda recusa intervalos acima de um ano', async () => {
+  assert.equal((await api('GET', 'agenda?de=2020-01-01&ate=2025-01-01')).status, 400);
+  assert.equal((await api('GET', 'agenda?de=2026-01-01&ate=2026-01-31')).status, 200);
+});
+
+test('revisões: última consulta realizada há mais de um ano e sem marcação futura (no servidor, sem limite de pacientes)', async () => {
+  const med = (await ok('POST', 't/medicos', { nome: 'Dr. Revisão' })).id;
+  const real = (await ok('GET', 'lookups')).estados.find(e => e.categoria === 'REALIZADAS').id;
+  const mk = (pid, inicio, estado_id) => ok('POST', 'marcacoes', { paciente_id: pid, medico_id: med, inicio, fim: inicio.slice(0, 11) + '11:00', estado_id, forcar: true });
+  const pR = (await ok('POST', 't/pacientes', { nome: 'Rev Antiga' })).id;
+  const pF = (await ok('POST', 't/pacientes', { nome: 'Rev Com Futura' })).id;
+  const pN = (await ok('POST', 't/pacientes', { nome: 'Rev Recente' })).id;
+  await mk(pR, '2020-03-02T10:00', real);
+  await mk(pF, '2020-03-02T10:00', real); await mk(pF, '2099-03-02T10:00');
+  await mk(pN, hoje() + 'T10:00', real);
+  const r = await ok('GET', 'revisoes');
+  const ids = r.map(x => x.id);
+  assert.ok(ids.includes(pR)); assert.ok(!ids.includes(pF)); assert.ok(!ids.includes(pN));
+  assert.equal(r.find(x => x.id === pR).ultima.slice(0, 10), '2020-03-02');
+});

@@ -291,7 +291,7 @@ const ORC_COLS = [
 ];
 route('orcamentos', async (view) => {
   view.innerHTML = `<div class="page-head"><h1>Faturação</h1><div class="spacer"></div>
-    <select id="or-est" style="width:auto">${optsArr([['', 'Todos'], ['aberto', 'Em aberto'], ['aceite', 'Aceites'], ['recusado', 'Recusados']], 'aberto')}</select>
+    <select id="or-est" aria-label="Estado do orçamento" style="width:auto">${optsArr([['', 'Todos'], ['aberto', 'Em aberto'], ['aceite', 'Aceites'], ['recusado', 'Recusados']], 'aberto')}</select>
     <button class="primary" id="or-new">Novo orçamento</button></div>${secTabs(SEC_FAT, '#/orcamentos')}<div class="card" id="or-list"></div>`;
   const load = async () => {
     const rows = await GET('orcamentos?estado=' + $('#or-est').value);

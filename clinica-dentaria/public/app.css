@@ -443,4 +443,5 @@ table.perio tr.ant td, table.perio tr.ni td { color: var(--muted); }
   button.icon, button.sm.icon { min-width: 32px; justify-content: center; }
   input[type=checkbox], input[type=radio] { width: 20px; height: 20px; }
   .check { min-height: 32px; }
+  #view a[href]:not(.btn) { display: inline-block; min-height: 32px; line-height: 32px; }
 }

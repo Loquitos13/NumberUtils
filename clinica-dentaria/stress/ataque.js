@@ -106,7 +106,7 @@ async function main() {
     `aniversarios?de=${hoje().slice(0, 4)}-01-01&ate=${hoje().slice(0, 4)}-12-31`, 'estatisticas', `estatisticas?de=2000-01-01&ate=2100-12-31`, 'dashboard', 'lookups',
     `listagens/confirmar?de=${ano}-01-01&ate=${ano}-12-31`,
     ...['remarcacoes', 'faltas', 'ausencias', 'espera', 'caixa', 'comissoes', 'pendentes', 'producao', 'orcamentos', 'movimentos'].map(l => `listagens/${l}?de=2000-01-01&ate=2100-12-31`),
-    'documentos', 'stocks/existencias', 'pesquisa-vagas?medico_id=1&medico2_id=2&limite=100', 'logs', 'sms/historico', 'pacientes/1/resumo', `agenda?de=2000-01-01&ate=2100-12-31`, 'backup'];
+    'documentos', 'stocks/existencias', 'pesquisa-vagas?medico_id=1&medico2_id=2&limite=100', 'logs', 'sms/historico', 'pacientes/1/resumo', `agenda?de=${hoje().slice(0, 4)}-01-01&ate=${hoje().slice(0, 4)}-12-31`, 'backup'];
   // intervalos acima de 1 ano nas listagens que percorrem dias/marcações → 400 imediato
   for (const l of ['ocupacao', 'agenda', 'confirmar']) registar(`GET listagens/${l} 1900→2100 → 400`, [await pedido('GET', `listagens/${l}?de=1900-01-01&ate=2100-12-31`, { ck: ckA })], r => r.status === 400 && r.ms < 100);
   const lentos = [];
@@ -146,7 +146,8 @@ async function main() {
   notas.push(`uploads: RSS ${antes.rss.toFixed(0)} → ${rss().rss.toFixed(0)} MB, pico ${rss().pico.toFixed(0)} MB`);
 
   // 5. entradas abusivas (esperado 4xx rápido, nunca 5xx nem pendurado)
-  const abuso = r => r.status >= 400 && r.status < 500;
+  // 4xx, ou ligação fechada pelo servidor antes de ler um corpo enorme sem sessão (EPIPE/ECONNRESET do lado do cliente)
+  const abuso = r => (r.status >= 400 && r.status < 500) || ['EPIPE', 'ECONNRESET'].includes(r.erro);
   registar('query string 8 KB', [await pedido('GET', 'pacientes?q=' + 'a'.repeat(8000), { ck: ckA })]);
   // o Node responde 431 e fecha; o cliente pode ver só o ECONNRESET
   registar('query string 64 KB → 431', [await pedido('GET', 'pacientes?q=' + 'a'.repeat(65536), { ck: ckA })], r => abuso(r) || r.erro === 'ECONNRESET');
@@ -158,7 +159,8 @@ async function main() {
   const m0 = rss(); const nIps = 5000; const logs0 = fs.statSync(path.join(dir, 'clinica.db')).size;
   const falh = [];
   for (let i = 0; i < nIps; i += 50) falh.push(...await Promise.all(Array.from({ length: 50 }, (_, k) => pedido('POST', 'login', { ip: `127.1.${(i + k) >> 8}.${((i + k) & 255) || 1}`, corpo: { login: 'nao-existe-' + 'x'.repeat(2000), password: 'x' } }))));
-  registar(`${nIps} logins falhados de IPs distintos → 401`, falh, r => r.status === 401);
+  // o mesmo login vindo de muitos IPs fica bloqueado por conta (429) — é o comportamento pretendido
+  registar(`${nIps} logins falhados de IPs distintos → 401/429`, falh, r => r.status === 401 || r.status === 429);
   notas.push(`falhas Map: RSS ${m0.rss.toFixed(0)} → ${rss().rss.toFixed(0)} MB com ${nIps} IPs; logs/BD +${((fs.statSync(path.join(dir, 'clinica.db')).size + (fs.existsSync(path.join(dir, 'clinica.db-wal')) ? fs.statSync(path.join(dir, 'clinica.db-wal')).size : 0) - logs0) / 1e6).toFixed(1)} MB (login de 2 KB registado por inteiro)`);
 
   // ---------- resumo ----------

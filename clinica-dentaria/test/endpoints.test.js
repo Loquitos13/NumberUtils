@@ -152,9 +152,11 @@ test('apagar registos clínicos: realizados e próteses só o admin; plano e odo
     assert.equal((await pedido('DELETE', `/api/t/${u}/${id}`, { ck: ck.admin })).status, 200, u);
 });
 
-test('JSON inválido → 400 (com e sem sessão, antes de qualquer efeito)', async () => {
-  for (const c of ['{', '{"a":', 'nao json', '\u0000', '[1,]'])
-    for (const k of [undefined, ck.admin]) assert.equal((await pedido('POST', '/api/notas', { ck: k, corpo: c })).status, 400, c);
+test('JSON inválido → 400 com sessão; sem sessão → 401 sem ler o corpo', async () => {
+  for (const c of ['{', '{"a":', 'nao json', '\u0000', '[1,]']) {
+    assert.equal((await pedido('POST', '/api/notas', { ck: ck.admin, corpo: c })).status, 400, c);
+    assert.equal((await pedido('POST', '/api/notas', { corpo: c })).status, 401, c);
+  }
 });
 
 test('JSON profundamente aninhado não derruba o servidor', async () => {

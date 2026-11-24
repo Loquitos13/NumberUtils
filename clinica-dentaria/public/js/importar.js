@@ -39,7 +39,7 @@ function importarSection(body, admin) {
   body.innerHTML = `<h3>Importar pacientes</h3>
     <p class="muted small">Ficheiro CSV exportado do NoviGest ou do Excel (separado por ; ou ,). Associe cada coluna a um campo da ficha, simule e depois importe.
       Os pacientes que já existem (mesmo NIF ou n.º de processo) são ignorados. Datas em dd/mm/aaaa ou aaaa-mm-dd. Máximo 3,5 MB.</p>
-    <div class="row"><input type="file" id="imp-file" accept=".csv,.txt,text/csv"><div class="spacer"></div>
+    <div class="row"><input type="file" id="imp-file" aria-label="Ficheiro CSV de pacientes" accept=".csv,.txt,text/csv"><div class="spacer"></div>
       <button id="imp-sim" disabled>Simular</button><button class="primary" id="imp-go" disabled>Importar</button></div>
     <div id="imp-prev" style="margin-top:10px"></div><div id="imp-res" style="margin-top:10px"></div>`;
   let csv = '', linhas = [];

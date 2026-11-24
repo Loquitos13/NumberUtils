@@ -91,7 +91,7 @@ async function odontograma(el, p, opts = {}) {
       </div>
       ${picker}
       <details class="od-more"><summary>Registar condição do dente</summary>
-        <div class="row" style="margin-top:6px">${sel('cond', optsArr(CONDICOES.map(([k, l]) => [k, l])), 'id="od-cond" style="flex:1"')}<button id="od-addc" ${st.sel.size ? '' : 'disabled'}>Registar</button></div></details>
+        <div class="row" style="margin-top:6px">${sel('cond', optsArr(CONDICOES.map(([k, l]) => [k, l])), 'id="od-cond" aria-label="Condição do dente" style="flex:1"')}<button id="od-addc" ${st.sel.size ? '' : 'disabled'}>Registar</button></div></details>
       <div id="od-histbox">${histHtml()}</div>
     </section></div>`;
 
