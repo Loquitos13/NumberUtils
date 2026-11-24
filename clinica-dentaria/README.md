@@ -57,7 +57,7 @@ A base de dados nova começa **vazia** (só com a tabela de tratamentos/preços,
 - **Faturação certificada:** em Portugal, as faturas com validade fiscal têm de ser emitidas por software certificado pela AT (com assinatura/hash, QR code, ATCUD e exportação SAF-T). Esta aplicação **não é certificada**: os documentos levam essa indicação no rodapé. Use-a para gestão interna e controlo de conta corrente, e emita as faturas oficiais no seu programa certificado (ou integre um serviço de faturação certificado).
 - **SAF-T (PT) e comunicação de documentos à AT:** só são válidos quando produzidos por software certificado (os documentos têm de ter assinatura digital/hash, ATCUD e séries comunicadas). Por isso esta aplicação **não gera SAF-T nem comunica faturas à AT** — fazê-lo a partir de um programa não certificado seria ilegal e induziria em erro. Se pretender, a aplicação pode ser integrada com um serviço de faturação certificado (via API), que trata da emissão legal, SAF-T e comunicação.
 - **SMS:** as mensagens são preparadas e registadas no histórico; sem um fornecedor de SMS configurado, podem ser copiadas ou abertas no telemóvel (link `sms:`). A integração com um gateway (ex.: o seu fornecedor atual) pode ser adicionada em `server.js` → `prepararSms`.
-- **Cópias de segurança:** em *Configuração → Cópia de segurança* descarrega uma cópia da base de dados (`clinica.db`), **sem os anexos** (RX, fotos, documentos), que ficam em `data/anexos/`. Para uma cópia completa, copie a pasta `data/` inteira (com o servidor parado, ou junte a cópia descarregada à pasta `data/anexos/`). Faça-o diariamente e guarde fora do computador. Para restaurar, pare o servidor e reponha a pasta `data/`.
+- **Cópias de segurança:** em *Configuração → Cópia de segurança* descarrega um `.zip` com a base de dados (`clinica.db`) e os anexos (`anexos/`: RX, fotos, documentos). Faça-o diariamente e guarde fora do computador. Para restaurar: extraia o `.zip` (no Windows, botão direito → *Extrair tudo*), pare o servidor, substitua `data/clinica.db` e a pasta `data/anexos` pelos do `.zip` e volte a iniciar. Limite: o `.zip` não pode passar de 4 GB (nem 65535 ficheiros); acima disso, copie a pasta `data/` inteira com o servidor parado.
 - **Rede e segurança:** o servidor aceita ligações da rede local (porta 3000). Não o exponha diretamente à Internet; para acesso remoto use uma VPN. Os dados de saúde são dados sensíveis (RGPD): mantenha o computador servidor protegido por palavra-passe e com o disco cifrado (BitLocker).
 - **Migração de dados:** para importar pacientes de outro sistema, exporte-os para CSV (separador `;` ou `,`, 1.ª linha com os cabeçalhos) e use *Configuração → Importar pacientes*: associe cada coluna a um campo da ficha, faça uma simulação para ver os erros por linha e depois importe. Linhas de pacientes que já existem (mesmo n.º de processo ou NIF) são ignoradas.
 
@@ -72,6 +72,7 @@ clinica-dentaria/
 ├── perio.js         Periodontograma (exames e índices)
 ├── anexos.js        Ficheiros do paciente (upload, download, apagar)
 ├── importar.js      Importação de pacientes a partir de CSV
+├── zip.js           Escritor ZIP mínimo (cópia de segurança)
 ├── iniciar.bat      Arranque no Windows
 ├── data/            Base de dados e anexos (criada automaticamente, fora do git)
 └── public/          Interface (HTML/CSS/JS sem frameworks)
