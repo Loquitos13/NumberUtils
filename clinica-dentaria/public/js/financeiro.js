@@ -179,7 +179,7 @@ async function verDocumento(id) {
     const p = await GET('t/pacientes/' + d.paciente_id);
     const para = await promptDlg(`Enviar ${d.tipo_nome} ${d.numero}`, 'E-mail do destinatário', p.email || '');
     if (!para) return false;
-    await act(() => POST(`documentos/${d.id}/email`, { para, html: docHTML(d), mensagem: `Exmo(a). Sr(a). ${p.nome},\n\nSegue em anexo o documento ${d.numero}.\n\nCom os melhores cumprimentos,\n${L().config.clinica_nome || ''}` }), 'Documento enviado para ' + para);
+    await act(() => POST(`documentos/${d.id}/email`, { ...(para !== p.email ? { para } : {}), mensagem: `Exmo(a). Sr(a). ${p.nome},\n\nSegue em anexo o documento ${d.numero}.\n\nCom os melhores cumprimentos,\n${L().config.clinica_nome || ''}` }), 'Documento enviado para ' + para);
     return false;
   } });
   buttons.push({ label: 'Paciente', onClick: () => go(`#/paciente/${d.paciente_id}/cc`) });

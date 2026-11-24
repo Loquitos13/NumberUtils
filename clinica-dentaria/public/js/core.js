@@ -160,7 +160,8 @@ function table(rows, cols, { onClick, empty = 'Sem registos', rowCls, foot } = {
 
 function downloadCSV(nome, rows, cols) {
   const strip = s => String(s ?? '').replace(/<[^>]*>/g, '').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'");
-  const q = s => `"${strip(s).replace(/"/g, '""')}"`;
+  // ' antes de = + - @ evita que o Excel trate o texto como fórmula
+  const q = s => `"${strip(s).replace(/^[=+\-@\t\r]/, "'$&").replace(/"/g, '""')}"`;
   const lines = [cols.map(c => q(c.h)).join(';'), ...rows.map(r => cols.map(c => q(c.csv ? c.csv(r) : c.f(r))).join(';'))];
   const blob = new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' });
   const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = nome + '.csv'; a.click();

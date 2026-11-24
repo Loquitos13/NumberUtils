@@ -137,3 +137,38 @@ test('SMS por API HTTP: texto com aspas e mudança de linha fica JSON válido', 
     assert.deepEqual(JSON.parse(recebido.corpo), { to: '+351912345678', msg: texto });
   } finally { srv.close(); }
 });
+
+// ---------- auditoria de segurança ----------
+test('notas clínicas não se alteram nem apagam pelo CRUD genérico', async () => {
+  const { id } = await ok('POST', 'notas', { paciente_id: pA, texto: 'Original' });
+  assert.equal((await api('PUT', `t/notas_clinicas/${id}`, { texto: 'Falsa' }, ckRec)).status, 405);
+  assert.equal((await api('DELETE', `t/notas_clinicas/${id}`, null, ckRec)).status, 405);
+  assert.equal((await api('POST', 't/notas_clinicas', { paciente_id: pA, texto: 'x' }, ckRec)).status, 405);
+  assert.equal((await ok('GET', `t/notas_clinicas/${id}`)).texto, 'Original');
+});
+
+test('documento por e-mail: HTML feito no servidor e destinatário livre só para o admin', async () => {
+  await ok('PUT', `t/pacientes/${pA}`, { email: 'ana@exemplo.pt', nome: 'Ana <b>Robusta</b>' });
+  const d = await fatura(pA, 30);
+  const enviados = []; const orig = COM.enviarEmail; COM.enviarEmail = async (cfg, m) => { enviados.push(m); };
+  try {
+    assert.equal((await api('POST', `documentos/${d.id}/email`, { para: 'vitima@fora.example' }, ckRec)).status, 403);
+    await ok('POST', `documentos/${d.id}/email`, { html: '<a href="http://phish">clique</a>', mensagem: 'Olá <script>' }, ckRec);
+    assert.equal(enviados[0].para, 'ana@exemplo.pt');
+    assert.ok(!enviados[0].html.includes('phish'), 'HTML do cliente foi ignorado');
+    assert.ok(!enviados[0].html.includes('<script>') && !enviados[0].html.includes('<b>Robusta'), 'campos escapados');
+    assert.ok(enviados[0].html.includes(d.numero) && enviados[0].html.includes('30,00'), enviados[0].html);
+    await ok('POST', `documentos/${d.id}/email`, { para: 'contabilidade@exemplo.pt' });
+    assert.equal(enviados[1].para, 'contabilidade@exemplo.pt');
+  } finally { COM.enviarEmail = orig; }
+});
+
+test('mudar a palavra-passe termina as outras sessões do utilizador', async () => {
+  const entrar = async () => (await fetch(base + '/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ login: 'rec', password: 'uma-nova-boa' }) }))
+    .headers.get('set-cookie').split(';')[0];
+  const outra = await entrar(); const esta = await entrar();
+  await ok('POST', 'password', { atual: 'uma-nova-boa', nova: 'outra-nova-boa' }, esta);
+  assert.equal((await api('GET', 'me', null, outra)).status, 401);
+  assert.equal((await api('GET', 'me', null, esta)).status, 200);
+  await ok('POST', 'password', { atual: 'outra-nova-boa', nova: 'uma-nova-boa' }, esta);
+});

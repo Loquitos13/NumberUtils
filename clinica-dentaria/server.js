@@ -121,6 +121,8 @@ function crud(method, table, id, query, body, user) {
     return all(`SELECT * FROM ${table} ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ORDER BY ${def.order}`, ...params);
   }
   if (def.admin) requireAdmin(user);
+  // as notas clínicas só se escrevem por /api/notas (quem criou fica registado; apagar só o admin)
+  if (table === 'notas_clinicas') throw new HttpError(405, 'Use as notas clínicas da ficha');
   if (table === 'pacientes' && method === 'DELETE') throw new HttpError(409, 'Os pacientes não se apagam (o histórico clínico é obrigatório). Desative a ficha.');
   if (table === 'tratamentos' && id && (method === 'DELETE' || method === 'PUT')) {
     const t = get("SELECT d.numero FROM tratamentos t JOIN documentos d ON d.id=t.documento_id AND d.estado='emitido' WHERE t.id=?", id);
@@ -385,6 +387,21 @@ function anularDocumento(id, user, motivo) {
   });
   D.log(user.id, 'anular documento', d.numero);
   return docComLinhas(id);
+}
+
+const escHtml = v => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+const eurTxt = v => (Number(v) || 0).toFixed(2).replace('.', ',') + ' €';
+// Corpo do e-mail feito no servidor a partir da BD (nunca HTML vindo do browser)
+function docEmailHtml(d, cfg) {
+  const td = 'style="padding:4px 8px;border-bottom:1px solid #ddd"';
+  return `<div style="font-family:Arial,sans-serif;font-size:13px">
+<p><b>${escHtml(cfg.clinica_nome)}</b>${cfg.clinica_nif ? ' · NIF ' + escHtml(cfg.clinica_nif) : ''}</p>
+<p><b>${escHtml(d.tipo_nome)} ${escHtml(d.numero)}</b> · ${escHtml(d.data)}${d.ref_numero ? ' · Ref. ' + escHtml(d.ref_numero) : ''}<br>
+${escHtml(d.paciente_nome)}${d.paciente_nif ? ' · NIF ' + escHtml(d.paciente_nif) : ''}</p>
+<table style="border-collapse:collapse"><tr><th align="left" ${td}>Descrição</th><th ${td}>Qtd.</th><th align="right" ${td}>Preço</th><th align="right" ${td}>IVA</th><th align="right" ${td}>Total</th></tr>
+${d.linhas.map(l => `<tr><td ${td}>${escHtml(l.descricao)}${l.dente ? ' (dente ' + escHtml(l.dente) + ')' : ''}</td><td align="center" ${td}>${escHtml(l.qtd)}</td><td align="right" ${td}>${eurTxt(l.preco)}</td><td align="right" ${td}>${escHtml(l.iva)}%</td><td align="right" ${td}>${eurTxt(l.total)}</td></tr>`).join('')}
+</table><p><b>Total: ${eurTxt(d.total)}</b></p>
+<p style="color:#777;font-size:11px">Documento processado por programa não certificado pela AT. Para efeitos fiscais utilize software de faturação certificado.</p></div>`;
 }
 
 function docComLinhas(id) {
@@ -810,6 +827,7 @@ async function api(req, res, url) {
       if (nova.length < 8) throw new HttpError(400, 'A nova palavra-passe deve ter pelo menos 8 caracteres');
       if (nova === u.login || D.checkPassword(nova, u.pass_hash)) throw new HttpError(400, 'Escolha uma palavra-passe diferente da atual e do nome de utilizador');
       run('UPDATE users SET pass_hash=?, trocar_pw=0 WHERE id=?', D.hashPassword(nova), user.id);
+      run('DELETE FROM sessions WHERE user_id=? AND token<>?', user.id, parseCookies(req).sid);
       if (u.login === 'admin') fs.rm(path.join(D.DATA_DIR, 'PRIMEIRO-ACESSO.txt'), { force: true }, () => {});
       return { ok: true };
     }
@@ -1033,10 +1051,11 @@ async function api(req, res, url) {
       if (m === 'POST' && id && r2_ === 'anular') return anularDocumento(id, user, body.motivo);
       if (m === 'POST' && id && r2_ === 'email') {
         const d = docComLinhas(id); const cfg = D.getConfig();
+        if (body.para) requireAdmin(user); // outros perfis só enviam para o e-mail da ficha
         const para = body.para || get('SELECT email FROM pacientes WHERE id=?', d.paciente_id)?.email;
         if (!para) throw new HttpError(400, 'O paciente não tem e-mail');
         await COM.enviarEmail(cfg, { para, assunto: `${d.tipo_nome} ${d.numero} — ${cfg.clinica_nome || ''}`,
-          html: `<div style="font-family:Arial,sans-serif;font-size:13px">${String(body.mensagem || '').replace(/</g, '&lt;').replace(/\n/g, '<br>')}</div><hr>${String(body.html || '')}` });
+          html: `<div style="font-family:Arial,sans-serif;font-size:13px">${escHtml(body.mensagem).replace(/\n/g, '<br>')}</div><hr>${docEmailHtml(d, cfg)}` });
         run("INSERT INTO sms_historico (paciente_id, telefone, texto, data, estado, user_id, canal) VALUES (?,?,?,datetime('now','localtime'),'enviado',?,'email')", d.paciente_id, para, `${d.tipo_nome} ${d.numero} enviado por e-mail`, user.id);
         D.log(user.id, 'enviar documento por e-mail', d.numero);
         return { ok: true, para };
