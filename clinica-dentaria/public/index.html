@@ -14,7 +14,7 @@
       <p class="muted" id="login-clinica">Inicie sessão para continuar</p>
       <div class="field"><label class="f" for="lg-u">Utilizador</label><input id="lg-u" name="login" autocomplete="username" required autofocus></div>
       <div class="field"><label class="f" for="lg-p">Palavra-passe</label><input id="lg-p" name="password" type="password" autocomplete="current-password" required></div>
-      <div id="login-err" class="alert danger hidden"></div>
+      <div id="login-err" class="alert danger hidden" role="alert"></div>
       <button class="primary" style="width:100%;justify-content:center;margin-top:6px">Entrar</button>
     </form>
   </div>
@@ -26,7 +26,7 @@
       <div class="field"><label class="f" for="tp-a">Palavra-passe atual</label><input id="tp-a" name="atual" type="password" autocomplete="current-password" required></div>
       <div class="field"><label class="f" for="tp-n">Nova palavra-passe</label><input id="tp-n" name="nova" type="password" autocomplete="new-password" minlength="8" required></div>
       <div class="field"><label class="f" for="tp-n2">Repetir a nova</label><input id="tp-n2" name="nova2" type="password" autocomplete="new-password" minlength="8" required></div>
-      <div id="trocar-err" class="alert danger hidden"></div>
+      <div id="trocar-err" class="alert danger hidden" role="alert"></div>
       <button class="primary" style="width:100%;justify-content:center">Guardar e entrar</button>
     </form>
   </div>
@@ -41,7 +41,7 @@
     </aside>
     <main id="main">
       <div id="topbar">
-        <div class="search ac"><input id="global-search" aria-label="Pesquisar paciente" placeholder="Pesquisar paciente (nome, NIF, telemóvel, n.º)…  [Ctrl+K]" autocomplete="off"></div>
+        <div class="search ac"><input id="global-search" aria-label="Pesquisar paciente (nome, NIF, telemóvel ou n.º)" placeholder="Pesquisar paciente… (Ctrl+K)" title="Nome, NIF, telemóvel ou n.º" aria-keyshortcuts="Control+K" autocomplete="off"></div>
         <div class="spacer"></div>
         <button class="primary" id="btn-new-marc" title="Nova marcação [Alt+N]" aria-keyshortcuts="Alt+N">Nova marcação</button>
         <button id="btn-new-pac">Novo paciente</button>
@@ -54,6 +54,7 @@
   <div id="toasts" role="status" aria-live="polite"></div>
   <div id="print-area"></div>
 
+  <script src="js/contas.js"></script>
   <script src="js/core.js"></script>
   <script src="js/agenda.js"></script>
   <script src="js/pacientes.js"></script>
