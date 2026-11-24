@@ -104,20 +104,22 @@ async function main() {
   const pesados = ['pacientes?q=a', 'pacientes?q=silva', 'pacientes?q=9', 'pacientes?limit=100000', 'pacientes?limit=-1', 't/pacientes', 'devedores',
     `listagens/ocupacao?de=${ano}-01-01&ate=${ano}-12-31`, `listagens/agenda?de=${ano}-01-01&ate=${ano}-12-31`,
     `aniversarios?de=${hoje().slice(0, 4)}-01-01&ate=${hoje().slice(0, 4)}-12-31`, 'estatisticas', `estatisticas?de=2000-01-01&ate=2100-12-31`, 'dashboard', 'lookups',
-    ...['agenda', 'confirmar', 'remarcacoes', 'faltas', 'ausencias', 'espera', 'caixa', 'comissoes', 'pendentes', 'producao', 'orcamentos', 'movimentos'].map(l => `listagens/${l}?de=2000-01-01&ate=2100-12-31`),
+    `listagens/confirmar?de=${ano}-01-01&ate=${ano}-12-31`,
+    ...['remarcacoes', 'faltas', 'ausencias', 'espera', 'caixa', 'comissoes', 'pendentes', 'producao', 'orcamentos', 'movimentos'].map(l => `listagens/${l}?de=2000-01-01&ate=2100-12-31`),
     'documentos', 'stocks/existencias', 'pesquisa-vagas?medico_id=1&medico2_id=2&limite=100', 'logs', 'sms/historico', 'pacientes/1/resumo', `agenda?de=2000-01-01&ate=2100-12-31`, 'backup'];
+  // intervalos acima de 1 ano nas listagens que percorrem dias/marcações → 400 imediato
+  for (const l of ['ocupacao', 'agenda', 'confirmar']) registar(`GET listagens/${l} 1900→2100 → 400`, [await pedido('GET', `listagens/${l}?de=1900-01-01&ate=2100-12-31`, { ck: ckA })], r => r.status === 400 && r.ms < 100);
   const lentos = [];
   for (const u of pesados) {
     const r = []; for (let i = 0; i < 3; i++) r.push(await pedido('GET', u, { ck: ckA }));
     const l = registar(`GET ${u}`, r); if (l.max > LENTO_MS) lentos.push(`${u} ${l.max.toFixed(0)} ms (${((r[0].texto || '').length / 1e6).toFixed(1)} MB)`);
   }
   notas.push(`> ${LENTO_MS} ms com ${NPAC} pacientes: ${lentos.join('; ') || 'nenhum'}`);
-  // um só pedido de qualquer perfil com um intervalo de datas enorme: o event loop fica preso (ninguém é servido)
-  // (3 anos chegam; 1900→2100 prende o servidor durante horas)
+  // um só pedido de qualquer perfil com um intervalo de datas enorme prendia o event loop (3 anos: 10 s); agora é recusado
   const dos = pedido('GET', `listagens/ocupacao?de=${ano - 2}-01-01&ate=${ano}-12-31`, { ck: ckA, timeout: 300000 });
   await new Promise(r => setTimeout(r, 200));
   const vitima = await pedido('GET', 'me', { ck: ckA, timeout: 300000 });
-  registar('listagens/ocupacao de 3 anos (1 pedido)', [await dos]);
+  registar('listagens/ocupacao de 3 anos (1 pedido) → 400', [await dos], r => r.status === 400);
   registar('  …GET /api/me de outro posto durante esse pedido (<1 s)', [vitima], r => r.status === 200 && r.ms < 1000);
 
   // 3. slowloris: SLOW_N ligações a mandar cabeçalhos a conta-gotas; os pedidos legítimos continuam a ser servidos?
@@ -131,7 +133,7 @@ async function main() {
   while (Date.now() < fimSlow) { legit.push(await pedido('GET', 'me', { ck: ckA, timeout: 10000 })); await new Promise(r => setTimeout(r, 250)); }
   clearInterval(gota);
   registar(`slowloris ${SLOW_N} lig. ${SLOW_S} s: GET /api/me`, legit);
-  notas.push(`slowloris: ${SLOW_N - fechadas}/${SLOW_N} ligações meio-abertas continuavam abertas ao fim de ${SLOW_S} s (Node 22: headersTimeout 60 s, requestTimeout 300 s, sem limite de ligações)`);
+  notas.push(`slowloris: ${SLOW_N - fechadas}/${SLOW_N} ligações meio-abertas continuavam abertas ao fim de ${SLOW_S} s (headersTimeout 20 s, requestTimeout 120 s, keepAliveTimeout 5 s; sem limite de ligações)`);
   socks.forEach(s => s.destroy());
 
   // 4. uploads em paralelo (5 MB cada, ficam em memória até ao fim) + um acima do limite
