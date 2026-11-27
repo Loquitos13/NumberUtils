@@ -18,7 +18,6 @@ try { pw = require('playwright'); } catch {
 // Problemas conhecidos da aplicação: são verificados e reportados, mas não falham a execução.
 // Quando um destes passar a "ok", retire-o daqui.
 const CONHECIDOS = {
-  'Agenda: Esc durante o arrasto (foco fora da grelha) cancela': 'F2 por juntar (agenda.js só ouve o Esc na grelha)',
 };
 
 // ---------- servidor ----------
