@@ -18,6 +18,7 @@ try { pw = require('playwright'); } catch {
 // Problemas conhecidos da aplicação: são verificados e reportados, mas não falham a execução.
 // Quando um destes passar a "ok", retire-o daqui.
 const CONHECIDOS = {
+  'Agenda: Esc durante o arrasto (foco fora da grelha) cancela': 'F2 por juntar (agenda.js só ouve o Esc na grelha)',
 };
 
 // ---------- servidor ----------
@@ -273,6 +274,89 @@ async function main() {
       assert.equal(falhas.length, 0, falhas.join(' | '));
       return 'marcação, FR, perio (acima) + paciente, tratamento, anamnese, nota, configuração';
     });
+
+    // ---------- caminhos com guardas (duplo clique, prefill, Esc, feriado, menus, Ctrl+S) ----------
+    // conta os pedidos método+URL até se chamar a função devolvida
+    const conta = (metodo, re) => { let n = 0; const f = r => { if (r.method() === metodo && re.test(r.url())) n++; }; page.on('request', f); return () => { page.off('request', f); return n; }; };
+
+    await check('Robustez: duplo clique em Guardar exame (perio) → 1 POST', async () => {
+      await nav('#/paciente/3/perio'); await page.selectOption('#pe-sel', 'novo'); await idle();
+      assert.match(await page.locator('#pe-save').innerText(), /Guardar exame/);
+      await page.locator('#pe-grid input[data-k="ps"]').first().fill('4');
+      const fim = conta('POST', /\/api\/pacientes\/3\/perio$/);
+      await page.dblclick('#pe-save'); await esperaToast(/Exame guardado/); await idle();
+      const n = fim(); assert.equal(n, 1, `${n} POST`); return '1 POST';
+    });
+
+    await check('Eficiência: Nova marcação na consulta já traz o paciente (botão e Alt+N)', async () => {
+      const m = (await page.evaluate(() => GET(`agenda?de=${isoDate()}&ate=${addDays(isoDate(), 7)}`)))[0];
+      assert.ok(m, 'sem marcações na semana'); await nav('#/consulta/' + m.id);
+      const vistos = [];
+      for (const [modo, abrir] of [['botão', () => page.click('#btn-new-marc')], ['Alt+N', () => page.keyboard.press('Alt+N')]]) {
+        await fecharModais(); await abrir(); await page.waitForSelector(`${modalTopo} [data-pac="paciente_id"]`);
+        const [nome, id] = await page.evaluate(s => [document.querySelector(s + ' [data-pac="paciente_id"]').value, document.querySelector(s + ' input[name="paciente_id"]').value], modalTopo);
+        assert.equal(nome, m.paciente_nome, `${modo}: paciente "${nome}"`); assert.equal(Number(id), m.paciente_id, `${modo}: paciente_id ${id}`);
+        vistos.push(modo); await page.keyboard.press('Escape');
+      }
+      await fecharModais(); return `${vistos.join(' e ')} com ${m.paciente_nome}`;
+    });
+
+    await check('Agenda: Esc durante o arrasto (foco fora da grelha) cancela', async () => {
+      await nav('#/inicio'); await page.evaluate(() => { AG.mode = 'dia'; AG.date = isoDate(); }); await nav('#/agenda');
+      const ev = page.locator('#ag-body .ev').first(); await ev.scrollIntoViewIfNeeded();
+      const id = Number(await ev.getAttribute('data-id'));
+      const antes = await page.evaluate(id => GET('marcacoes/' + id), id);
+      const b = await ev.boundingBox();
+      await page.mouse.move(b.x + b.width / 2, b.y + 5); await page.mouse.down();
+      for (let i = 1; i <= 4; i++) await page.mouse.move(b.x + b.width / 2, b.y + 5 + i * 15);
+      await page.evaluate(() => document.activeElement?.blur());
+      await page.keyboard.press('Escape'); await page.mouse.up(); await idle();
+      const modais = await page.locator('.modal-bg').count(); await fecharModais();
+      const depois = await page.evaluate(id => GET('marcacoes/' + id), id);
+      assert.equal(modais, 0, 'abriu a confirmação de remarcar depois do Esc');
+      assert.equal(depois.inicio, antes.inicio, 'a marcação mudou de hora');
+      return 'sem modal, marcação na mesma hora';
+    });
+
+    await check('Agenda: vaga num feriado avisa antes de abrir Nova marcação', async () => {
+      const dia = await page.evaluate(() => addDays(isoDate(), 30));
+      const { id } = await page.evaluate(d => POST('t/feriados', { nome: 'Feriado e2e', data: d, fixo: 0, ativo: 1 }), dia);
+      try {
+        await nav('#/inicio'); await page.evaluate(d => { AG.feriados = {}; AG.mode = 'dia'; AG.date = d; }, dia); await nav('#/agenda');
+        await page.locator('.col').first().locator('.slot[data-t="10:00"]').click(); await page.waitForSelector(modalTopo); await idle();
+        const txt = await page.locator(modalTopo).innerText();
+        assert.match(txt, /feriado \(Feriado e2e\)/, 'o 1.º modal não é o aviso de feriado');
+        assert.equal(await page.locator('[data-pac="paciente_id"]').count(), 0, 'o formulário abriu antes do aviso');
+        await page.locator(`${modalTopo} footer button.primary`).click(); await page.waitForSelector(`${modalTopo} [data-pac="paciente_id"]`);
+        return '"Marcar mesmo assim?" e só depois o formulário';
+      } finally {
+        await fecharModais(); await page.evaluate(async id => { await DEL('t/feriados/' + id); AG.feriados = {}; AG.date = isoDate(); }, id);
+      }
+    });
+
+    await check('Teclado: menu "Mais ⋯" abre, Esc fecha e devolve o foco, clique fora fecha', async () => {
+      await nav('#/agenda');
+      const sum = page.locator('#view details.mais > summary'), aberto = () => page.evaluate(() => document.querySelector('#view details.mais').open);
+      await sum.click(); assert.ok(await aberto(), 'não abriu');
+      await page.keyboard.press('Escape'); assert.ok(!await aberto(), 'Esc não fechou');
+      assert.ok(await page.evaluate(() => document.activeElement === document.querySelector('#view details.mais > summary')), `foco em ${JSON.stringify(await ativo())}`);
+      await sum.click(); assert.ok(await aberto(), 'não reabriu');
+      await page.click('#ag-title'); assert.ok(!await aberto(), 'clique fora não fechou');
+      return 'abre, Esc → summary, clique fora fecha';
+    });
+
+    await check('Teclado: Ctrl+S nas notas clínicas grava 1 nota', async () => {
+      await nav('#/paciente/2/notas'); await toasts();
+      const antes = (await page.evaluate(() => GET('pacientes/2/notas'))).length;
+      await page.fill('#nt-txt', 'Nota por Ctrl+S');
+      const fim = conta('POST', /\/api\/notas$/);
+      await page.keyboard.press('Control+s'); await page.keyboard.press('Control+s');
+      await esperaToast(/Nota adicionada/); await idle();
+      const n = fim(), depois = (await page.evaluate(() => GET('pacientes/2/notas'))).length;
+      assert.equal(n, 1, `${n} POST`); assert.equal(depois - antes, 1, `${depois - antes} notas novas`);
+      return '1 POST, 1 nota';
+    });
+    await toasts();
 
     // ---------- varrimento de rotas ----------
     const extra = [];
