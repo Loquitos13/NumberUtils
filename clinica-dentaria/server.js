@@ -1,6 +1,7 @@
 'use strict';
 // Servidor HTTP da aplicação (sem dependências externas)
 const http = require('node:http');
+const https = require('node:https');
 const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
@@ -18,6 +19,10 @@ const PORT = Number(process.env.PORT) || 3000;
 // atrás de um proxy todos os postos têm o IP do proxy: o bloqueio de login passa a usar o endereço que o proxy acrescenta ao X-Forwarded-For
 const TRUST_PROXY = process.env.TRUST_PROXY === '1';
 const PUBLIC = path.join(__dirname, 'public');
+// HTTPS opcional: HTTPS_CERT/HTTPS_KEY (caminhos) ou data/certificado.pem + data/chave.pem; sem eles, HTTP como sempre
+const CERT = process.env.HTTPS_CERT || path.join(D.DATA_DIR, 'certificado.pem');
+const KEY = process.env.HTTPS_KEY || path.join(D.DATA_DIR, 'chave.pem');
+const HTTPS = !!(process.env.HTTPS_CERT && process.env.HTTPS_KEY) || (fs.existsSync(CERT) && fs.existsSync(KEY));
 
 // ---------- utilitários ----------
 class HttpError extends Error { constructor(status, msg) { super(msg); this.status = status; } }
@@ -904,7 +909,7 @@ async function api(req, res, url) {
     run("INSERT INTO sessions VALUES (?,?,datetime('now','localtime'))", token, u.id);
     D.log(u.id, 'login', '');
     return send(res, 200, { id: u.id, nome: u.nome, perfil: u.perfil, medico_id: u.medico_id, trocar_pw: u.trocar_pw },
-      { 'Set-Cookie': `sid=${token}; HttpOnly; Path=/; SameSite=Strict; Max-Age=${60 * 60 * 12}` });
+      { 'Set-Cookie': `sid=${token}; HttpOnly; Path=/; SameSite=Strict; Max-Age=${60 * 60 * 12}${HTTPS ? '; Secure' : ''}` });
   }
 
   const user = currentUser(req);
@@ -1278,7 +1283,8 @@ function serveStatic(req, res, url) {
   });
 }
 
-const server = http.createServer(async (req, res) => {
+async function tratar(req, res) {
+  if (HTTPS) res.setHeader('Strict-Transport-Security', 'max-age=31536000');
   try {
     const url = new URL(req.url, 'http://localhost');
     if (!url.pathname.startsWith('/api/')) return serveStatic(req, res, url);
@@ -1289,7 +1295,9 @@ const server = http.createServer(async (req, res) => {
     if (status === 500) console.error(e);
     if (!res.headersSent) send(res, status, { erro: status === 500 ? 'Erro interno' : e.message });
   }
-});
+}
+// um caminho que falte em HTTPS_CERT/HTTPS_KEY faz o arranque falhar (melhor do que cair em HTTP sem aviso)
+const server = HTTPS ? https.createServer({ cert: fs.readFileSync(CERT), key: fs.readFileSync(KEY) }, tratar) : http.createServer(tratar);
 
 // rede local: cabeçalhos em 20 s (slowloris); 120 s para o pedido inteiro (anexos de 20 MB em Wi-Fi lento)
 Object.assign(server, { headersTimeout: 20000, requestTimeout: 120000, keepAliveTimeout: 5000 });
@@ -1300,10 +1308,17 @@ if (require.main === module) {
   server.listen(PORT, '0.0.0.0', () => {
     const ips = Object.values(os.networkInterfaces()).flat().filter(i => i && i.family === 'IPv4' && !i.internal).map(i => i.address);
     console.log(`\n  Clínica Dentária — servidor ativo`);
-    console.log(`  Neste computador:   http://localhost:${PORT}`);
-    for (const ip of ips) console.log(`  Noutros postos:     http://${ip}:${PORT}`);
+    const esq = HTTPS ? 'https' : 'http';
+    console.log(`  Neste computador:   ${esq}://localhost:${PORT}`);
+    for (const ip of ips) console.log(`  Noutros postos:     ${esq}://${ip}:${PORT}`);
     console.log(`  Base de dados:      ${D.DB_FILE}\n`);
   });
+  // opcional: quem escreve http://servidor:HTTP_REDIRECT_PORT é mandado para o endereço https
+  const RED = Number(process.env.HTTP_REDIRECT_PORT);
+  if (HTTPS && RED) http.createServer((req, res) => {
+    let host; try { host = new URL('http://' + req.headers.host).hostname; } catch { host = 'localhost'; }
+    res.writeHead(301, { Location: `https://${host}${PORT === 443 ? '' : ':' + PORT}${req.url}` }).end();
+  }).listen(RED, '0.0.0.0', () => console.log(`  Redireciona http://…:${RED} para https\n`));
 }
 
 module.exports = { lembretesAutomaticos, server, pascoa, r2 };

@@ -132,6 +132,9 @@ test('cookie de sessão: HttpOnly, SameSite=Strict, Path=/, 12 h, token aleatór
   for (const f of ['HttpOnly', 'SameSite=Strict', 'Path=/', 'Max-Age=43200']) assert.ok(c.includes(f), f);
   assert.match(sid(r), /^sid=[0-9a-f]{48}$/);
   assert.equal(r.headers['set-cookie'].length, 1);
+  // em HTTP simples (sem certificado) não há Secure nem HSTS: o browser deixaria de enviar o cookie (ver https.test.js)
+  assert.ok(!c.includes('Secure'));
+  assert.equal(r.headers['strict-transport-security'], undefined);
 });
 
 test('fixação de sessão: um sid escolhido pelo atacante não é aceite nem reaproveitado', async () => {

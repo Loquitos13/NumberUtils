@@ -7,6 +7,9 @@ if errorlevel 1 (
   pause
   exit /b 1
 )
-start "" http://localhost:3000
+set ENDERECO=http://localhost:3000
+if exist "data\certificado.pem" if exist "data\chave.pem" set ENDERECO=https://localhost:3000
+if defined HTTPS_CERT if defined HTTPS_KEY set ENDERECO=https://localhost:3000
+start "" %ENDERECO%
 node server.js
 pause
