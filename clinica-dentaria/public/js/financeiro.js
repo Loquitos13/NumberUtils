@@ -75,9 +75,9 @@ async function emitirDocumento({ paciente, tratamentos = [], linhas, tipo = 'FR'
   const medDefault = tratamentos[0]?.medico_id || paciente?.medico_id || App.user.medico_id;
   const fixo = tipo === 'NC' || tipo === 'ND';
   modal({ title: fixo ? `${TIPO_NOME[tipo]}${ref ? ' — ref. ' + ref.numero : ''}` : 'Emitir documento', size: 'lg', semCtrlS: true, body: `<form class="form-grid" onsubmit="return false">
-    <div class="s2">${pacField('paciente_id', paciente?.id, paciente?.nome)}</div>
+    <div class="s2">${pacField('paciente_id', paciente?.id, paciente?.nome, 'Paciente', true)}</div>
     ${fld('Tipo de documento', sel('tipo', fixo ? optsArr([[tipo, TIPO_NOME[tipo]]]) : optsArr(TIPOS_EMITIR, tipo), paciente ? 'autofocus' : ''))}
-    ${fld('Data', inp('data', isoDate(), 'type="date"'))}
+    ${fld('Data *', inp('data', isoDate(), 'type="date" required'))}
     ${fld('Médico', sel('medico_id', opts(lk.medicos, medDefault, { empty: '—', only: x => x.ativo })), 's2')}
     ${fld('Método de pagamento', sel('metodo', optsArr(METODOS)), 's2" id="ed-met')}
     <div class="s4" id="ed-linhas"></div>
@@ -109,9 +109,9 @@ async function emitirDocumento({ paciente, tratamentos = [], linhas, tipo = 'FR'
 async function emitirRecibo({ paciente, documento, documentos: preSel, onDone } = {}) {
   const sel0 = new Set((preSel || (documento ? [documento.id] : null) || []).map(Number));
   modal({ title: 'Receber pagamento', size: 'lg', semCtrlS: true, body: `<form class="form-grid" onsubmit="return false">
-    <div class="s4">${pacField('paciente_id', paciente?.id, paciente?.nome)}</div>
+    <div class="s4">${pacField('paciente_id', paciente?.id, paciente?.nome, 'Paciente', true)}</div>
     <div class="s4" id="rc-docs"></div>
-    ${fld('Valor recebido (€)', inp('valor', '', `type="number" step="0.01" min="0" ${paciente ? 'autofocus' : ''}`))}
+    ${fld('Valor recebido (€) *', inp('valor', '', `required type="number" step="0.01" min="0" ${paciente ? 'autofocus' : ''}`))}
     ${fld('Meio de pagamento', sel('metodo', optsArr(METODOS)))}${fld('Data', inp('data', isoDate(), 'type="date"'))}<div></div>
     ${fld('Notas', inp('notas', ''), 's4')}</form>`,
   buttons: [{ label: 'Cancelar' }, { label: 'Emitir recibo', cls: 'primary', onClick: async c => {
@@ -312,7 +312,7 @@ async function editOrcamento(id, { paciente, linhas } = {}) {
   const ls = o.linhas.map(l => ({ ...l }));
   if (!ls.length) ls.push(ivaFix({ qtd: 1, preco: 0, desconto_pct: byId(lk.entidades, paciente?.entidade_id)?.desconto_pct || 0 }));
   modal({ title: id ? `Orçamento ${o.numero}` : 'Novo orçamento', size: 'lg', body: `<form class="form-grid" onsubmit="return false">
-    <div class="s2">${pacField('paciente_id', o.paciente_id ?? paciente?.id, o.paciente_nome ?? paciente?.nome)}</div>
+    <div class="s2">${pacField('paciente_id', o.paciente_id ?? paciente?.id, o.paciente_nome ?? paciente?.nome, 'Paciente', true)}</div>
     ${fld('Médico', sel('medico_id', opts(lk.medicos, o.medico_id, { empty: '—', only: x => x.ativo })))}${fld('Data', inp('data', o.data, 'type="date"'))}
     <div class="s4" id="oe-linhas"></div>${fld('Observações / condições', txt('notas', o.notas), 's4')}</form>`,
   buttons: [{ label: 'Cancelar' }, { label: 'Guardar', cls: 'primary', onClick: async c => {

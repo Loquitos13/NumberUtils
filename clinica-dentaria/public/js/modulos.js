@@ -76,7 +76,7 @@ function editProtese(r, paciente) {
   if (r.id && next) buttons.push({ label: '' + next[1], onClick: c => save(c, { fase: next[0], [next[2]]: isoDate() }) });
   buttons.push({ label: 'Guardar', cls: 'primary', onClick: c => save(c) });
   modal({ title: r.id ? 'Trabalho de prótese' : 'Novo trabalho de prótese', size: 'lg', body: `<form class="form-grid" onsubmit="return false">
-    <div class="s2">${pacField('paciente_id', r.paciente_id, r.paciente_nome)}</div>
+    <div class="s2">${pacField('paciente_id', r.paciente_id, r.paciente_nome, 'Paciente', true)}</div>
     ${fld('Médico', sel('medico_id', opts(lk.medicos, r.medico_id, { empty: '—', only: x => x.ativo })))}${fld('Laboratório', sel('laboratorio_id', opts(lk.laboratorios, r.laboratorio_id, { empty: '—', only: x => x.ativo })))}
     ${fld('Tipo', sel('tipo', optsArr(TIPOS_PROT, r.tipo)))}${fld('Dentes', inp('dentes', r.dentes))}${fld('Cor', inp('cor', r.cor, 'placeholder="ex.: A2"'))}${fld('Referência lab.', inp('referencia', r.referencia))}
     ${fld('Descrição / instruções', txt('descricao', r.descricao), 's4')}
@@ -154,7 +154,7 @@ async function movimentoStock(tipo, produto) {
   modal({ title: tipo === 'entrada' ? 'Entrada de stock' : 'Saída / consumo de stock', body: `<form class="form-grid" onsubmit="return false">
     ${fld('Produto', sel('produto_id', opts(prods, produto?.id, { label: p => `${p.nome}${p.codigo ? ' (' + p.codigo + ')' : ''}` })), 's4')}
     ${fld('Tipo', sel('tipo', optsArr(tipo === 'entrada' ? [['entrada', 'Entrada (compra)'], ['ajuste+', 'Ajuste de inventário (+)']] : [['saida', 'Saída / consumo'], ['ajuste-', 'Ajuste de inventário (−)']])))}
-    ${fld('Armazém', sel('armazem_id', opts(ativos(lk.armazens), lk.armazens[0]?.id)))}${fld('Quantidade', inp('qtd', 1, 'type="number" step="any" min="0"'))}${fld('Data', inp('data', isoDate(), 'type="date"'))}
+    ${fld('Armazém', sel('armazem_id', opts(ativos(lk.armazens), lk.armazens[0]?.id)))}${fld('Quantidade *', inp('qtd', 1, 'type="number" step="any" min="0" required'))}${fld('Data', inp('data', isoDate(), 'type="date"'))}
     ${fld('Lote', inp('lote', ''))}${fld('Validade', inp('validade', '', 'type="date"'))}${fld('Motivo / documento', inp('motivo', ''), 's2')}</form>`,
   buttons: [{ label: 'Cancelar' }, { label: 'Registar', cls: 'primary', onClick: async c => {
     const f = readForm($('form', c.body)); f.produto_id = Number(f.produto_id); f.armazem_id = Number(f.armazem_id);
@@ -165,7 +165,7 @@ async function transferirStock() {
   const lk = L(); const prods = await GET('t/produtos?ativo=1'); const arms = ativos(lk.armazens);
   modal({ title: 'Transferência entre armazéns', body: `<form class="form-grid" onsubmit="return false">
     ${fld('Produto', sel('produto_id', opts(prods)), 's4')}${fld('De', sel('de', opts(arms, arms[0]?.id)), 's2')}${fld('Para', sel('para', opts(arms, arms[1]?.id)), 's2')}
-    ${fld('Quantidade', inp('qtd', 1, 'type="number" step="any"'))}${fld('Lote', inp('lote', ''))}${fld('Validade', inp('validade', '', 'type="date"'))}</form>`,
+    ${fld('Quantidade *', inp('qtd', 1, 'type="number" step="any" required'))}${fld('Lote', inp('lote', ''))}${fld('Validade', inp('validade', '', 'type="date"'))}</form>`,
   buttons: [{ label: 'Cancelar' }, { label: 'Transferir', cls: 'primary', onClick: async c => {
     const f = readForm($('form', c.body)); await POST('stocks/transferir', { ...f, produto_id: Number(f.produto_id), de: Number(f.de), para: Number(f.para) });
     toast('Transferência registada'); if (App.current === 'stocks') render();

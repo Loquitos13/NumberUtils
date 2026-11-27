@@ -226,7 +226,7 @@ async function drawAgenda() {
         <div class="h"><span class="dot"></span>${estreito ? '' : `<span class="num">${fmtTime(e.inicio)}</span> `}${esc(e.paciente_nome)}</div><div class="small">${estreito ? `<span class="num">${fmtTime(e.inicio)}</span> ` : ''}${esc(e.estado_nome)}${sub ? ' · ' + esc(sub) : ''}${e.notas ? ' · notas' : ''}${e.primeira ? ' · 1.ª consulta' : ''}</div></div>`;
     }
     for (const { b, s0, e0 } of blks) {
-      h += `<div class="blk" data-bl="${b.id}" style="top:${(s0 - t0) * pxMin}px;height:${(e0 - s0) * pxMin}px" title="${esc(b.tipo_nome + (b.motivo ? ': ' + b.motivo : ''))}">${esc(b.tipo_nome)}${b.motivo ? ' — ' + esc(b.motivo) : ''}</div>`;
+      h += `<div class="blk" data-bl="${b.id}" style="top:${(s0 - t0) * pxMin}px;height:${(e0 - s0) * pxMin}px" title="${esc(b.tipo_nome + (b.motivo ? ': ' + b.motivo : ''))}"><span>${esc(b.tipo_nome)}${b.motivo ? ' — ' + esc(b.motivo) : ''}</span></div>`;
     }
     if (c.date === isoDate() && nowMin >= t0 && nowMin <= t1) h += `<div class="now-line" style="top:${(nowMin - t0) * pxMin}px"></div>`;
     h += '</div>';
@@ -266,7 +266,6 @@ async function drawAgenda() {
   let arrastou = false, drag = null, cancelado = false;
   cal.addEventListener('click', e => { if (!arrastou) ativar(e.target); });
   cal.addEventListener('keydown', e => {
-    if (e.key === 'Escape' && drag?.on) { e.preventDefault(); e.stopPropagation(); fimDrag(); cancelado = true; return; }
     const it = e.target.closest('.ev, .slot'); if (!it) return;
     if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); ativar(it); return; }
     const col = it.closest('.col'), ci = colEls.indexOf(col);
@@ -305,7 +304,9 @@ async function drawAgenda() {
     if (cal.scrollTop !== t || cal.scrollLeft !== l) pinta(drag, alvoEm(drag.cx, drag.cy));
     drag.raf = requestAnimationFrame(autoScroll);
   };
-  const fimDrag = () => { const d = drag, alvo = d?.alvo; drag = null; if (d?.on) { cancelAnimationFrame(d.raf); d.ev.style.opacity = ''; d.ev.style.cursor = ''; pinta(d, null); } return d && { ...d, alvo }; };
+  // Esc cancela o arrasto onde quer que esteja o foco (captura: antes dos outros Esc da página)
+  const escDrag = e => { if (e.key === 'Escape' && drag?.on) { e.preventDefault(); e.stopPropagation(); fimDrag(); cancelado = true; } };
+  const fimDrag = () => { const d = drag, alvo = d?.alvo; drag = null; if (d?.on) { document.removeEventListener('keydown', escDrag, true); cancelAnimationFrame(d.raf); d.ev.style.opacity = ''; d.ev.style.cursor = ''; pinta(d, null); } return d && { ...d, alvo }; };
   cal.addEventListener('pointerdown', e => {
     const ev = e.target.closest('.ev');
     if (ev && e.button === 0 && e.pointerType !== 'touch' && !AG.remarcar) drag = { ev, x: e.clientX, y: e.clientY, id: e.pointerId, dur: ev.dataset.f - ev.dataset.s, off: Math.floor((e.clientY - ev.getBoundingClientRect().top) / SLOT_H) }; // off: slots entre o topo e o ponto agarrado
@@ -316,6 +317,7 @@ async function drawAgenda() {
       if (Math.hypot(e.clientX - drag.x, e.clientY - drag.y) < 6) return;
       drag.on = true; drag.ev.setPointerCapture(drag.id); drag.ev.style.opacity = '.5'; drag.ev.style.cursor = 'grabbing';
       drag.raf = requestAnimationFrame(autoScroll);
+      document.addEventListener('keydown', escDrag, true);
     }
     document.getSelection()?.removeAllRanges();
     drag.cx = e.clientX; drag.cy = e.clientY;
@@ -413,14 +415,14 @@ async function openMarcacao({ id, date, hora, medico_id, gabinete_id, paciente, 
   const rapido = m ? estadoRapido(m, { consulta: false }) : '';
   const body = `<form class="form-grid" onsubmit="return false">
     ${rapido.includes('data-est') ? `<div class="s4 row" id="mk-rapido" style="margin-bottom:4px"><span class="muted small">Chegada:</span> ${rapido}</div>` : ''}
-    ${m ? `<div class="s4">${pacField('paciente_id', m.paciente_id, m.paciente_nome)}</div>` : `<div class="s3">${pacField('paciente_id', paciente?.id, paciente?.nome)}</div>
+    ${m ? `<div class="s4">${pacField('paciente_id', m.paciente_id, m.paciente_nome, 'Paciente', true)}</div>` : `<div class="s3">${pacField('paciente_id', paciente?.id, paciente?.nome, 'Paciente', true)}</div>
     <div class="field"><label class="f">&nbsp;</label><button type="button" id="mk-newpac" style="width:100%">Novo paciente</button></div>`}
     <div class="s4" id="mk-alert" hidden></div>
-    ${fld('Médico', sel('medico_id', opts(lk.medicos, medId, { only: x => x.ativo })), 's2')}
+    ${fld('Médico *', sel('medico_id', opts(lk.medicos, medId, { only: x => x.ativo }), 'required'), 's2')}
     ${fld('Gabinete', sel('gabinete_id', opts(lk.gabinetes, m?.gabinete_id ?? gabinete_id, { empty: '—', only: x => x.ativo })), 's2')}
     ${fld('Serviço / motivo', sel('servico_id', opts(lk.servicos, m?.servico_id ?? servico_id, { empty: '—', only: x => x.ativo, label: s => `${s.codigo ? s.codigo + ' · ' : ''}${s.nome} (${s.duracao_min} min)` })), 's4')}
-    ${fld('Data', inp('data', ini.slice(0, 10), 'type="date"'))}
-    ${fld('Hora', inp('hora', fmtTime(ini), `type="time" step="${(Number(cfg.agenda_intervalo) || 15) * 60}"`))}
+    ${fld('Data *', inp('data', ini.slice(0, 10), 'type="date" required'))}
+    ${fld('Hora *', inp('hora', fmtTime(ini), `required type="time" step="${(Number(cfg.agenda_intervalo) || 15) * 60}"`))}
     ${fld('Duração (min)', inp('duracao', dur, 'type="number" min="5" step="5"'))}
     ${fld('Estado', sel('estado_id', opts(estados, m?.estado_id ?? estados[0]?.id)))}
     <div class="s4">${chk('primeira', m?.primeira, 'Primeira consulta')}</div>
@@ -582,7 +584,7 @@ function editEspera(r, paciente) {
     toast('Lista de espera atualizada'); refreshCurrent();
   } });
   modal({ title: isNew ? 'Adicionar à lista de espera' : 'Lista de espera', body: `<form class="form-grid" onsubmit="return false">
-    <div class="s4">${pacField('paciente_id', r.paciente_id, r.paciente_nome)}</div>
+    <div class="s4">${pacField('paciente_id', r.paciente_id, r.paciente_nome, 'Paciente', true)}</div>
     ${fld('Médico', sel('medico_id', opts(lk.medicos, r.medico_id, { empty: 'Qualquer', only: x => x.ativo })), 's2')}
     ${fld('Serviço', sel('servico_id', opts(lk.servicos, r.servico_id, { empty: '—', only: x => x.ativo })), 's2')}
     ${fld('Preferência de horário', inp('preferencia', r.preferencia, 'placeholder="ex.: manhãs, 2.ª e 4.ª"'), 's4')}${fld('Notas', txt('notas', r.notas), 's4')}</form>`,
