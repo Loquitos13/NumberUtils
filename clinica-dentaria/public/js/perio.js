@@ -128,8 +128,8 @@ async function tabPerio(el, p, st = {}) {
     const body = { data: $('#pe-data', el).value, medico_id: Number($('#pe-med', el).value) || null, notas: $('#pe-notas', el).value, dados: perioLer(grid) };
     btn.disabled = true;
     const e = await act(() => cur ? PUT(`perio/${cur.id}`, body) : POST(`pacientes/${p.id}/perio`, body), 'Exame guardado').catch(() => null);
-    btn.disabled = false;
-    if (e) { App.dirty = false; redo({ id: e.id, comp: $('#pe-comp', el).value }); }
+    // sucesso: fica desativado até o redo redesenhar (senão um 2.º clique cria outro exame)
+    if (e) { App.dirty = false; redo({ id: e.id, comp: $('#pe-comp', el).value }); } else btn.disabled = false;
   };
   if (!cur) return;
   if ($('#pe-del', el)) $('#pe-del', el).onclick = async () => {

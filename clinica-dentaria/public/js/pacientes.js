@@ -180,7 +180,8 @@ async function tabNotas(el, p) {
     const b = e.currentTarget, texto = $('#nt-txt').value.trim(); if (!texto) return toast('Escreva a nota', true);
     if (b.disabled) return; b.disabled = true; // duplo clique / Ctrl+S não cria duas notas
     const ok = await act(() => POST('notas', { paciente_id: p.id, texto, medico_id: Number($('#nt-med').value) || null }), 'Nota adicionada').then(() => true, () => false);
-    b.disabled = false; if (ok) render();
+    // sucesso: o botão fica desativado até o render o substituir (um 2.º Ctrl+S não grava outra vez)
+    if (ok) { $('#nt-txt').value = ''; render(); } else b.disabled = false;
   };
   $$('[data-del]', el).forEach(b => b.onclick = async () => { if (await confirmDlg('Eliminar esta nota?', 'Eliminar', true)) { await DEL('notas/' + b.dataset.del); render(); } });
 }
