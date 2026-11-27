@@ -200,9 +200,9 @@ route('config', async (view, [sec = 'clinica']) => {
     const editU = u => {
       const isNew = !u; u = u || { perfil: 'rececao', ativo: 1 };
       modal({ title: isNew ? 'Novo utilizador' : 'Editar utilizador', body: `<form class="form-grid" onsubmit="return false">
-        ${fld('Nome', inp('nome', u.nome), 's2')}${fld('Login', inp('login', u.login, 'autocomplete="off"'), 's2')}
+        ${fld('Nome *', inp('nome', u.nome, 'required'), 's2')}${fld('Login *', inp('login', u.login, 'autocomplete="off" required'), 's2')}
         ${fld('Perfil', sel('perfil', optsArr(PERFIS, u.perfil)), 's2')}${fld('Médico associado', sel('medico_id', opts(L().medicos, u.medico_id, { empty: '—' })), 's2')}
-        ${fld(isNew ? 'Palavra-passe provisória (mín. 8)' : 'Nova palavra-passe provisória (vazio = manter)', inp('password', '', 'type="password" autocomplete="new-password" minlength="8"'), 's2')}
+        ${fld(isNew ? 'Palavra-passe provisória (mín. 8) *' : 'Nova palavra-passe provisória (vazio = manter)', inp('password', '', `type="password" autocomplete="new-password" minlength="8"${isNew ? ' required' : ''}`), 's2')}
         <div class="s2" style="padding-top:22px">${chk('ativo', u.ativo, 'Ativo')}</div></form>`,
       buttons: [{ label: 'Cancelar' }, { label: 'Guardar', cls: 'primary', onClick: async c => {
         const f = readForm($('form', c.body)); f.medico_id = f.medico_id ? Number(f.medico_id) : null;

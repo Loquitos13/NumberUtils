@@ -137,7 +137,7 @@ function modal({ title, body = '', size = '', buttons = [], onOpen, onClose, sem
       if (!b.onClick) return dismiss();
       btn.disabled = true;
       try { const r = await b.onClick(ctx); if (r !== false) close(); }
-      catch (e) { toast(e.message, true); marcarInvalido(bodyEl); }
+      catch (e) { toast(e.message, true); marcarInvalido(bodyEl, e.message); }
       finally { btn.disabled = false; }
     })();
     foot.appendChild(btn);
@@ -155,13 +155,20 @@ function modal({ title, body = '', size = '', buttons = [], onOpen, onClose, sem
   }, 30);
   return ctx;
 }
-// erro ao guardar: o 1.º campo inválido ou obrigatório vazio fica marcado e com o foco (3.3.1)
-function marcarInvalido(root) {
+// erro ao guardar: o 1.º campo inválido ou obrigatório vazio fica marcado, com a mensagem por baixo e o foco (3.3.1)
+// (pacField: o texto escrito não conta se o paciente não foi escolhido da lista)
+function marcarInvalido(root, msg) {
+  const vazio = i => !String(i.value).trim() || (i.dataset.pac && !$(`input[name="${i.dataset.pac}"]`, root)?.value);
   const f = $$('input:not([type=hidden]), select, textarea', root)
-    .find(i => i.getClientRects().length && !i.disabled && (!i.checkValidity() || (i.required && !String(i.value).trim())));
+    .find(i => i.getClientRects().length && !i.disabled && (!i.checkValidity() || (i.required && vazio(i))));
   if (!f) return;
-  f.setAttribute('aria-invalid', 'true');
-  f.addEventListener('input', () => f.removeAttribute('aria-invalid'), { once: true });
+  const box = f.closest('.field') || f.parentNode;
+  let er = $('.field-erro', box);
+  if (!er) { er = document.createElement('div'); er.className = 'field-erro'; er.id = 'erro-' + (++fldSeq); box.appendChild(er); }
+  er.textContent = msg; er.classList.remove('limpo');
+  f.setAttribute('aria-invalid', 'true'); f.setAttribute('aria-describedby', er.id);
+  // limpa ao editar; a linha fica reservada (visibility) para o formulário não saltar enquanto se escreve
+  f.addEventListener('input', () => { f.removeAttribute('aria-invalid'); f.removeAttribute('aria-describedby'); er.classList.add('limpo'); }, { once: true });
   f.focus();
 }
 // Esc, X ou fundo valem como Cancelar (a promessa resolve sempre; a 1.ª resposta é a que conta)
@@ -325,8 +332,8 @@ function patientPicker(input, onSelect) {
   });
 }
 // campo de paciente com valor escondido
-function pacField(name, pid, pnome, label = 'Paciente') {
-  return fld(label, `<input type="hidden" name="${name}" value="${esc(pid ?? '')}"><input data-pac="${name}" value="${esc(pnome ?? '')}" placeholder="Escreva para pesquisar…" autocomplete="off">`);
+function pacField(name, pid, pnome, label = 'Paciente', req = false) {
+  return fld(req ? label + ' *' : label, `<input type="hidden" name="${name}" value="${esc(pid ?? '')}"><input data-pac="${name}" value="${esc(pnome ?? '')}" placeholder="Escreva para pesquisar…" autocomplete="off"${req ? ' required' : ''}>`);
 }
 function bindPacField(root, name, onPick) {
   const vis = $(`[data-pac="${name}"]`, root), hid = $(`input[name="${name}"]`, root);

@@ -134,6 +134,10 @@ input[type=color] { padding: 2px; height: 30px; }
 textarea { min-height: 64px; resize: vertical; }
 label.f { display: block; font-size: .85rem; color: var(--graphite); margin-bottom: 2px; font-weight: 500; }
 .field { margin-bottom: 8px; min-width: 0; }
+/* erro junto ao campo: 1 linha, sem animação (o texto completo também vai no toast) */
+[aria-invalid=true], [aria-invalid=true]:focus { border-color: var(--red); }
+.field-erro { color: var(--red-ink); font-size: .8rem; line-height: 1.25; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.field-erro.limpo { visibility: hidden; }
 .check { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; margin-right: 14px; min-height: 24px; }
 .form-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0 10px; }
 .form-grid .s2 { grid-column: span 2; } .form-grid .s3 { grid-column: span 3; } .form-grid .s4 { grid-column: span 4; }
@@ -278,9 +282,9 @@ table.t tfoot td { font-weight: 600; border-top: 1px solid var(--rule); border-b
 .now-line { position: absolute; left: 0; right: 0; height: 0; border-top: 2px solid var(--red); z-index: 3; pointer-events: none; }
 .now-line::before { content: ""; position: absolute; left: -4px; top: -5px; width: 8px; height: 8px; border-radius: 50%; background: var(--red); }
 .blk { position: absolute; left: 0; right: 0; z-index: 1; background: repeating-linear-gradient(135deg, rgba(184, 32, 45, .07), rgba(184, 32, 45, .07) 6px, rgba(184, 32, 45, .13) 6px, rgba(184, 32, 45, .13) 12px);
-  color: var(--red-ink); font-size: .85rem; font-weight: 600; padding: 3px 6px; overflow: hidden; cursor: pointer; border-top: 1px solid rgba(184, 32, 45, .45); border-bottom: 1px solid rgba(184, 32, 45, .45);
+  color: var(--red-ink); font-size: .85rem; font-weight: 600; padding: 3px 6px; overflow: clip; cursor: pointer; border-top: 1px solid rgba(184, 32, 45, .45); border-bottom: 1px solid rgba(184, 32, 45, .45);
   display: flex; align-items: flex-start; justify-content: flex-end; text-align: right; }
-.blk > * { position: sticky; top: 34px; }
+.blk > * { position: sticky; top: 34px; } /* .blk com overflow: clip, não hidden: hidden prende o sticky ao próprio .blk */
 .legend { display: flex; flex-wrap: wrap; gap: 3px 12px; font-size: .85rem; }
 /* legenda dos estados recolhida por omissão */
 details:has(> .legend) > summary, details.legenda > summary { cursor: pointer; font-weight: 600; color: var(--graphite); }
