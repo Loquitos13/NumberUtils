@@ -30,3 +30,10 @@ test('TRUST_PROXY=1: 5 falhas de um posto bloqueiam esse posto e não os outros 
   assert.equal(await entrar('admin', 'segredo-de-teste', '1.2.3.4, 10.0.0.1'), 429);
   assert.equal(await entrar('admin', 'segredo-de-teste', '10.0.0.2'), 200);
 });
+
+test('TRUST_PROXY=1 com X-Forwarded-Proto: https → cookie com Secure; sem o cabeçalho, sem Secure', async () => {
+  const ck = async proto => (await fetch(base + '/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Forwarded-For': '10.9.9.' + (proto ? 1 : 2), ...(proto ? { 'X-Forwarded-Proto': proto } : {}) },
+    body: JSON.stringify({ login: 'admin', password: 'segredo-de-teste' }) })).headers.get('set-cookie');
+  assert.match(await ck('https'), /; Secure/);
+  assert.doesNotMatch(await ck(null), /Secure/);
+});

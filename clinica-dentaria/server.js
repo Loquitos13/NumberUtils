@@ -909,7 +909,7 @@ async function api(req, res, url) {
     run("INSERT INTO sessions VALUES (?,?,datetime('now','localtime'))", token, u.id);
     D.log(u.id, 'login', '');
     return send(res, 200, { id: u.id, nome: u.nome, perfil: u.perfil, medico_id: u.medico_id, trocar_pw: u.trocar_pw },
-      { 'Set-Cookie': `sid=${token}; HttpOnly; Path=/; SameSite=Strict; Max-Age=${60 * 60 * 12}${HTTPS ? '; Secure' : ''}` });
+      { 'Set-Cookie': `sid=${token}; HttpOnly; Path=/; SameSite=Strict; Max-Age=${60 * 60 * 12}${HTTPS || (TRUST_PROXY && req.headers['x-forwarded-proto'] === 'https') ? '; Secure' : ''}` });
   }
 
   const user = currentUser(req);
