@@ -23,6 +23,6 @@ async function anamneseExtra(el, pid) {
     }
     return inp(n, v);
   };
-  el.innerHTML = `<h3>Outras perguntas</h3><div class="form-grid">${ps.map(p => fld(p.texto, campo(p), p.tipo === 'texto' ? 's2' : '')).join('')}</div>`;
+  el.innerHTML = `<h2 class="h-card">Outras perguntas</h2><div class="form-grid">${ps.map(p => fld(p.texto, campo(p), p.tipo === 'texto' ? 's2' : '')).join('')}</div>`;
   return () => PUT(`pacientes/${pid}/anamnese-extra`, Object.fromEntries(ps.map(p => [p.id, $(`[name="aq_${p.id}"]`, el).value])));
 }

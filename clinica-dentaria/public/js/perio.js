@@ -45,8 +45,8 @@ function perioArco(nome, dentes, dados, anterior, soLeitura) {
     linha('Mobilidade', grau('mob')), linha('Furca', grau('furca')),
   ];
   const v = face('V', 'V'), l = face(lingual, 'L');
-  return `<h3>${nome}</h3><div class="tbl-wrap"><table class="perio">
-    <thead><tr><th></th>${dentes.map(d => `<th>${d}</th>`).join('')}</tr></thead>
+  return `<h2 class="h-card">${nome}</h2><div class="tbl-wrap"><table class="perio">
+    <thead><tr><th><span class="sr-only">Dente</span></th>${dentes.map(d => `<th>${d}</th>`).join('')}</tr></thead>
     <tbody>${nome === 'Maxilar' ? corpo.join('') + v + l : l + v + corpo.join('')}</tbody></table></div>`;
 }
 

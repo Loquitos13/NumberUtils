@@ -87,7 +87,7 @@ async function odontograma(el, p, opts = {}) {
 
   el.innerHTML = `<div class="od-wrap">
     <section class="card od-chart">
-      <div class="row between"><h3 style="margin:0">Odontograma</h3>
+      <div class="row between"><h2 class="h-card" style="margin:0">Odontograma</h2>
         <span class="row"><span class="small muted" id="od-ver">Ver:</span><span class="seg" role="group" aria-labelledby="od-ver">${[['tudo', 'Tudo'], ['nec', 'Por fazer'], ['feito', 'Feitos'], ...(m ? [['consulta', 'Esta consulta']] : [])].map(([k, l]) => `<button type="button" data-filtro="${k}" class="${filtro === k ? 'on' : ''}" aria-pressed="${filtro === k}">${l}</button>`).join('')}</span>
         <label class="check small"><input type="checkbox" id="od-dec" ${st.dec ? 'checked' : ''}> Decídua</label>
         <button class="sm ghost" id="od-clear" ${st.sel.size ? '' : 'style="visibility:hidden"'}>Limpar seleção</button></span></div>
@@ -226,7 +226,7 @@ route('consulta', async (view, [id]) => {
       <div class="consulta-main" id="cs-odonto"></div>
       <div class="consulta-side">
         <section class="card" id="cs-resumo"></section>
-        <section class="card"><h3>Notas da consulta</h3><div id="cs-notas"></div>
+        <section class="card"><h2 class="h-card">Notas da consulta</h2><div id="cs-notas"></div>
           <textarea id="cs-nota" placeholder="O que foi feito, observações, indicações ao paciente…"></textarea>
           <div class="row end" style="margin-top:6px"><button id="cs-nota-add" data-save>Guardar nota</button></div></section>
       </div>
@@ -243,12 +243,12 @@ route('consulta', async (view, [id]) => {
     const porFat = feito.filter(t => !t.documento_id);
     const linha = (t, act2, oculta) => `<li class="${t.estado === 'planeado' ? 'is-nec' : 'is-feito'}${oculta ? ' hidden' : ''}"><span class="mark"></span><span class="grow">${esc(t.descricao)}${t.dente ? ` <span class="muted num">${esc(t.dente)}${t.faces ? ' ' + esc(t.faces) : ''}</span>` : ''}</span>
       ${t.estado === 'realizado' ? estadoChip(t) : ''}<span class="num">${eur(liqTrat(t))}</span>${act2 || ''}</li>`;
-    $('#cs-resumo').innerHTML = `${hoje.length ? `<h3>Previsto para esta consulta</h3><ul class="od-hist">${hoje.map(t => linha(t, ` <button class="sm" data-fazer="${t.id}">Feito</button>`)).join('')}</ul><div style="height:12px"></div>` : ''}
-      <h3>Feito nesta consulta</h3>
+    $('#cs-resumo').innerHTML = `${hoje.length ? `<h2 class="h-card">Previsto para esta consulta</h2><ul class="od-hist">${hoje.map(t => linha(t, ` <button class="sm" data-fazer="${t.id}">Feito</button>`)).join('')}</ul><div style="height:12px"></div>` : ''}
+      <h2 class="h-card">Feito nesta consulta</h2>
       ${feito.length ? `<ul class="od-hist">${feito.map(t => linha(t, t.documento_id ? ` <a href="#" data-doc="${t.documento_id}" class="small" title="Ver documento">ver</a>` : '')).join('')}</ul>` : '<p class="muted small">Nada registado ainda. Selecione dentes no odontograma e carregue em "Feito".</p>'}
       <div class="row between" style="margin-top:8px"><span class="muted">Total feito</span><b class="ok num">${eur(feito.reduce((s, t) => s + liqTrat(t), 0))}</b></div>
       <button class="primary" id="cs-fat" style="width:100%;justify-content:center;margin-top:8px" ${porFat.length ? '' : 'disabled'}>Faturar o que foi feito${porFat.length ? ' · ' + eur(porFat.reduce((s, t) => s + liqTrat(t), 0)) : ''}</button>
-      <h3 style="margin-top:16px">Plano do paciente · por fazer</h3>
+      <h2 class="h-card" style="margin-top:16px">Plano do paciente · por fazer</h2>
       ${plano.length ? `<ul class="od-hist" id="cs-plano">${plano.map((t, k) => linha(t, ` <button class="sm" data-fazer="${t.id}" title="Fazer nesta consulta">Feito</button><button class="sm" data-agc="${t.id}" title="${t.marcacao_inicio ? 'Agendado ' + fmtDT(t.marcacao_inicio) : 'Agendar consulta'}">${t.marcacao_inicio && t.marcacao_inicio >= isoDate() ? fmtDate(t.marcacao_inicio).slice(0, 5) : 'Agendar'}</button>`, k >= 5)).join('')}</ul>
         ${plano.length > 5 ? `<button class="sm ghost" id="cs-mais" aria-controls="cs-plano">Ver mais (${plano.length - 5})</button>` : ''}
         <div class="row between" style="margin-top:8px"><span class="muted">Por fazer</span><b class="danger num">${eur(plano.reduce((s, t) => s + liqTrat(t), 0))}</b></div>` : '<p class="muted small">Sem tratamentos por fazer.</p>'}

@@ -220,10 +220,10 @@ async function drawAgenda() {
       const inact = ['INATIVAS', 'FALTAS'].includes(e.estado_categoria);
       const sub = AG.mode === 'gabinetes' ? e.medico_nome : (e.servico_nome || '');
       const estreito = nL >= 3; // faixa estreita: o nome vai primeiro, a hora passa para a 2.ª linha
-      h += `<div class="ev ${inact ? 'inact' : ''}${hh < 30 ? ' curta' : ''}" data-id="${e.id}" data-s="${s}" data-f="${f}" tabindex="-1" role="button" aria-label="${esc(`${fmtTime(e.inicio)}–${fmtTime(e.fim)} ${e.paciente_nome}, ${[sub, e.estado_nome].filter(Boolean).join(', ')}`)}"
+      h += `<div class="ev ${inact ? 'inact' : ''}${hh < 30 ? ' curta' : ''}" data-id="${e.id}" data-s="${s}" data-f="${f}" tabindex="-1" role="button" aria-label="${esc(`${estreito ? `${e.paciente_nome}, ${fmtTime(e.inicio)}` : `${fmtTime(e.inicio)} ${e.paciente_nome}`}, ${[e.estado_nome, sub, e.notas && 'notas', e.primeira && '1.ª consulta'].filter(Boolean).join(', ')}, até ${fmtTime(e.fim)}`)}"
         style="top:${top}px;height:${hh}px;left:calc(${e._lane * w}% + 3px);width:calc(${w}% - 6px);right:auto;--st:${esc(e.estado_cor)};${rm ? 'pointer-events:none;opacity:.55;' : ''}"
         title="${esc(`${fmtTime(e.inicio)}-${fmtTime(e.fim)} ${e.paciente_nome}\n${e.servico_nome || ''}\n${e.estado_nome}${e.notas ? '\n' + e.notas : ''}`)}">
-        <div class="h"><span class="dot"></span>${estreito ? '' : `<span class="num">${fmtTime(e.inicio)}</span> `}${esc(e.paciente_nome)}</div><div class="small">${estreito ? `<span class="num">${fmtTime(e.inicio)}</span> ` : ''}${esc(e.estado_nome)}${sub ? ' · ' + esc(sub) : ''}${e.notas ? ' · notas' : ''}${e.primeira ? ' · 1.ª consulta' : ''}</div></div>`;
+        <div class="h"><span class="dot"></span>${estreito ? '' : `<span class="num">${fmtTime(e.inicio)}</span> `}${esc(e.paciente_nome)} </div><div class="small">${estreito ? `<span class="num">${fmtTime(e.inicio)}</span> ` : ''}${esc(e.estado_nome)}${sub ? ' · ' + esc(sub) : ''}${e.notas ? ' · notas' : ''}${e.primeira ? ' · 1.ª consulta' : ''}</div></div>`;
     }
     for (const { b, s0, e0 } of blks) {
       h += `<div class="blk" data-bl="${b.id}" style="top:${(s0 - t0) * pxMin}px;height:${(e0 - s0) * pxMin}px" title="${esc(b.tipo_nome + (b.motivo ? ': ' + b.motivo : ''))}"><span>${esc(b.tipo_nome)}${b.motivo ? ' — ' + esc(b.motivo) : ''}</span></div>`;

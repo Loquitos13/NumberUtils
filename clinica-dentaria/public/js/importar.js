@@ -36,7 +36,7 @@ const impSugestao = h => (IMP_CAMPOS.find(c => c[2].includes(impNorm(h))) || [''
 
 function importarSection(body, admin) {
   if (!admin) { body.innerHTML = '<div class="empty">Sem permissão</div>'; return; }
-  body.innerHTML = `<h3>Importar pacientes</h3>
+  body.innerHTML = `<h2 class="h-card">Importar pacientes</h2>
     <p class="muted small">Ficheiro CSV exportado do NoviGest ou do Excel (separado por ; ou ,). Associe cada coluna a um campo da ficha, simule e depois importe.
       Os pacientes que já existem (mesmo NIF ou n.º de processo) são ignorados. Datas em dd/mm/aaaa ou aaaa-mm-dd. Máximo 3,5 MB.</p>
     <div class="row"><input type="file" id="imp-file" aria-label="Ficheiro CSV de pacientes" accept=".csv,.txt,text/csv"><div class="spacer"></div>

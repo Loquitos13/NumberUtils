@@ -107,15 +107,15 @@ route('config', async (view, [sec = 'clinica']) => {
 
   if (sec === 'clinica') {
     body.innerHTML = `<form class="form-grid" onsubmit="return false">
-      <div class="s4"><h3>Identificação</h3></div>
+      <div class="s4"><h2 class="h-card">Identificação</h2></div>
       ${fld('Nome / denominação social', inp('clinica_nome', c.clinica_nome), 's3')}${fld('NIF', inp('clinica_nif', c.clinica_nif, 'maxlength="9"'))}
       ${fld('Morada', inp('clinica_morada', c.clinica_morada), 's2')}${fld('Código postal e localidade', inp('clinica_cp', c.clinica_cp), 's2')}
       ${fld('Telefone', inp('clinica_telefone', c.clinica_telefone))}${fld('Telemóvel', inp('clinica_telemovel', c.clinica_telemovel))}
       ${fld('E-mail', inp('clinica_email', c.clinica_email))}${fld('Website', inp('clinica_website', c.clinica_website))}
-      <div class="s4"><h3 style="margin-top:8px">Registo comercial e bancário</h3></div>
+      <div class="s4"><h2 class="h-card" style="margin-top:8px">Registo comercial e bancário</h2></div>
       ${fld('Capital social', inp('clinica_capital', c.clinica_capital, 'placeholder="ex.: 5.000,00 €"'))}${fld('Conservatória (local CRC)', inp('clinica_crc', c.clinica_crc))}
       ${fld('N.º registo ERS', inp('clinica_ers', c.clinica_ers))}${fld('IBAN', inp('clinica_iban', c.clinica_iban))}
-      <div class="s4"><h3 style="margin-top:8px">Faturação</h3></div>
+      <div class="s4"><h2 class="h-card" style="margin-top:8px">Faturação</h2></div>
       ${fld('Região fiscal de IVA', sel('clinica_regiao_iva', optsArr([['PT', 'Portugal continental'], ['PT-AC', 'Açores'], ['PT-MA', 'Madeira']], c.clinica_regiao_iva || 'PT')))}
       ${fld('Taxa de IVA por omissão (%)', inp('iva_default', c.iva_default, 'type="number"'))}
       ${fld('Validade dos orçamentos (dias)', inp('validade_orcamento_dias', c.validade_orcamento_dias, 'type="number"'))}
@@ -138,8 +138,8 @@ route('config', async (view, [sec = 'clinica']) => {
         ${chk('feriado_pascoa', c.feriado_pascoa === '1', 'Páscoa')}${chk('feriado_sexta_santa', c.feriado_sexta_santa === '1', 'Sexta-feira Santa')}
         ${chk('feriado_corpo_deus', c.feriado_corpo_deus === '1', 'Corpo de Deus')}${chk('feriado_carnaval', c.feriado_carnaval === '1', 'Carnaval')}</div>
       <div class="s4 row end"><button class="primary" id="cf-save">Guardar</button></div></form>
-      <div class="grid g2" style="margin-top:16px"><div><h3>Feriados configurados</h3><div id="cf-fer"></div></div>
-      <div><h3>Calendário de feriados ${ano}</h3>${table(calc, [{ h: 'Data', f: f => `${fmtDate(f.data)} <span class="muted small">${DIAS_C[new Date(f.data + 'T12:00').getDay()]}</span>` }, { h: 'Feriado', f: f => esc(f.nome) }])}</div></div>`;
+      <div class="grid g2" style="margin-top:16px"><div><h2 class="h-card">Feriados configurados</h2><div id="cf-fer"></div></div>
+      <div><h2 class="h-card">Calendário de feriados ${ano}</h2>${table(calc, [{ h: 'Data', f: f => `${fmtDate(f.data)} <span class="muted small">${DIAS_C[new Date(f.data + 'T12:00').getDay()]}</span>` }, { h: 'Feriado', f: f => esc(f.nome) }])}</div></div>`;
     $('#cf-save').onclick = async () => {
       const f = readForm($('#cf-ag'));
       for (const k of ['feriado_pascoa', 'feriado_sexta_santa', 'feriado_corpo_deus', 'feriado_carnaval']) f[k] = String(f[k]);
@@ -154,12 +154,12 @@ route('config', async (view, [sec = 'clinica']) => {
     const mSel = (k) => sel(k, opts(ativos(L().sms_modelos), c[k]));
     const canais = (k) => `${chk(k + '_sms', (c[k] || '').includes('sms'), 'SMS')}${chk(k + '_email', (c[k] || '').includes('email'), 'E-mail')}`;
     body.innerHTML = `<form class="form-grid" id="cf-msg" onsubmit="return false">
-      <div class="s4"><h3>E-mail (SMTP)</h3><p class="muted small" style="margin-top:0">Use os dados da conta de e-mail da clínica (ex.: Microsoft 365: smtp.office365.com, porta 587, STARTTLS; Gmail: smtp.gmail.com, porta 587, com palavra-passe de aplicação).</p></div>
+      <div class="s4"><h2 class="h-card">E-mail (SMTP)</h2><p class="muted small" style="margin-top:0">Use os dados da conta de e-mail da clínica (ex.: Microsoft 365: smtp.office365.com, porta 587, STARTTLS; Gmail: smtp.gmail.com, porta 587, com palavra-passe de aplicação).</p></div>
       ${fld('Servidor SMTP', inp('smtp_host', c.smtp_host, 'placeholder="smtp.exemplo.pt"'), 's2')}${fld('Porta', inp('smtp_porta', c.smtp_porta, 'type="number"'))}
       ${fld('Segurança', sel('smtp_seguranca', optsArr([['starttls', 'STARTTLS (587)'], ['ssl', 'SSL/TLS (465)'], ['nenhuma', 'Sem cifra (não recomendado)']], c.smtp_seguranca)))}
       ${fld('Utilizador', inp('smtp_utilizador', c.smtp_utilizador, 'autocomplete="off"'))}${fld('Palavra-passe', inp('smtp_password', c.smtp_password, 'type="password" autocomplete="new-password"'))}
       ${fld('E-mail do remetente', inp('smtp_de', c.smtp_de, 'type="email"'))}${fld('Nome do remetente', inp('smtp_nome', c.smtp_nome || c.clinica_nome))}
-      <div class="s4"><h3 style="margin-top:6px">SMS</h3></div>
+      <div class="s4"><h2 class="h-card" style="margin-top:6px">SMS</h2></div>
       ${fld('Fornecedor', sel('sms_fornecedor', optsArr([['', 'Nenhum (preparar e enviar pelo telemóvel)'], ['twilio', 'Twilio'], ['http', 'Outro fornecedor (API HTTP)']], c.sms_fornecedor)), 's2')}
       ${fld('Remetente (nome ou número)', inp('sms_remetente', c.sms_remetente, 'maxlength="11"'))}${fld('Indicativo por omissão', inp('sms_indicativo', c.sms_indicativo))}
       ${fld('Conta (Account SID)', inp('sms_conta', c.sms_conta), 's2 sms-twilio')}${fld('Token / chave da API', inp('sms_token', c.sms_token, 'type="password" autocomplete="new-password"'), 's2 sms-any')}
@@ -167,7 +167,7 @@ route('config', async (view, [sec = 'clinica']) => {
       ${fld('Método', sel('sms_metodo', optsArr(['POST', 'GET'], c.sms_metodo)), 'sms-http')}${fld('Cabeçalho de autenticação', inp('sms_auth_header', c.sms_auth_header, 'placeholder="Authorization"'), 'sms-http')}
       ${fld('Prefixo do token', inp('sms_auth_prefixo', c.sms_auth_prefixo, 'placeholder="Bearer"'), 'sms-http')}<div class="sms-http"></div>
       ${fld('Corpo do pedido (JSON ou formulário)', txt('sms_corpo', c.sms_corpo, 'placeholder=\'{"to":"{para}","from":"{remetente}","text":"{texto}"}\''), 's4 sms-http')}
-      <div class="s4"><h3 style="margin-top:6px">Envios automáticos</h3></div>
+      <div class="s4"><h2 class="h-card" style="margin-top:6px">Envios automáticos</h2></div>
       <div class="s2">${chk('confirmacao_auto', c.confirmacao_auto === '1', 'Enviar confirmação quando se cria uma marcação')}<div style="margin:6px 0 0 22px">${canais('confirmacao_canais')}</div></div>
       ${fld('Modelo da confirmação', mSel('confirmacao_modelo_id'), 's2')}
       <div class="s2">${chk('lembrete_auto', c.lembrete_auto === '1', 'Enviar lembrete antes da consulta')}<div style="margin:6px 0 0 22px">${canais('lembrete_canais')}</div></div>
@@ -220,7 +220,7 @@ route('config', async (view, [sec = 'clinica']) => {
     return;
   }
   if (sec === 'backup') {
-    body.innerHTML = `<h3>Cópia de segurança</h3><p>Descarrega um ficheiro <strong>.zip</strong> com a base de dados (pacientes, agenda, faturação, stocks e configuração) e os ficheiros dos pacientes (RX, fotos, documentos).
+    body.innerHTML = `<h2 class="h-card">Cópia de segurança</h2><p>Descarrega um ficheiro <strong>.zip</strong> com a base de dados (pacientes, agenda, faturação, stocks e configuração) e os ficheiros dos pacientes (RX, fotos, documentos).
       Guarde-o num disco externo ou na nuvem. Recomenda-se uma cópia diária.</p>
       <p><a class="btn primary" href="/api/backup" ${admin ? '' : 'onclick="return false" aria-disabled="true" style="opacity:.5"'}>Descarregar cópia de segurança</a></p>
       <p class="muted small">Para restaurar: extraia o .zip, pare o servidor, substitua <code>data/clinica.db</code> e a pasta <code>data/anexos</code> pelos do .zip e volte a iniciar.</p>`;

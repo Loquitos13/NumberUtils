@@ -24,7 +24,7 @@ function linhasEditor(root, linhas, onChange) {
     // table-layout fixed: as larguras são respeitadas e a Descrição fica com o espaço que sobra
     const al = (c, i) => `aria-label="${c}, linha ${i + 1}"`;
     root.innerHTML = `<div class="tbl-wrap" style="max-height:none"><table class="t" style="table-layout:fixed"><thead><tr><th style="width:18%">Serviço</th><th>Descrição</th><th style="width:58px">Dente</th>
-      <th style="width:56px">Qtd</th><th style="width:78px">Preço</th><th style="width:60px">Desc.%</th><th style="width:138px">IVA</th><th class="right" style="width:86px">Total</th><th style="width:56px"></th></tr></thead>
+      <th style="width:56px">Qtd</th><th style="width:78px">Preço</th><th style="width:60px">Desc.%</th><th style="width:138px">IVA</th><th class="right" style="width:86px">Total</th><th style="width:56px"><span class="sr-only">Remover</span></th></tr></thead>
       <tbody>${linhas.map((l, i) => `<tr data-i="${i}">
         <td>${sel('servico_id', opts(ativos(lk.servicos), l.servico_id, { empty: '—', label: s => `${s.codigo || ''} ${s.nome}` }), al('Serviço', i))}</td>
         <td>${inp('descricao', l.descricao, al('Descrição', i))}</td><td>${inp('dente', l.dente, al('Dente', i))}</td>
@@ -241,8 +241,8 @@ route('faturacao', async (view, [sub = 'documentos', dia]) => {
       <div class="facts"><div class="fact"><div class="l">Faturado</div><div class="v">${eur(st.kpi.faturado)}</div></div>
       <div class="fact"><div class="l">Recebido</div><div class="v ok">${eur(st.kpi.recebido)}</div></div>
       <div class="fact"><div class="l">Documentos</div><div class="v">${docs.length}</div></div></div>
-      <h3>Recebimentos por método</h3>${hbars(st.recebMetodo, { label: 'metodo', value: 'total', fmt: eur })}
-      <h3 style="margin-top:16px">Documentos do dia</h3>${docsTable(docs)}</div>`;
+      <h2 class="h-card">Recebimentos por método</h2>${hbars(st.recebMetodo, { label: 'metodo', value: 'total', fmt: eur })}
+      <h2 class="h-card" style="margin-top:16px">Documentos do dia</h2>${docsTable(docs)}</div>`;
     $('#cx-d').onchange = e => { if (e.target.value) go('#/faturacao/caixa/' + e.target.value); };
     bindDocsTable(body);
     $('#cx-print').onclick = () => printHTML(`<div class="doc"><div class="dh">${cabecalhoClinica()}<div><h2>Fecho de caixa</h2>${fmtDate(de)}</div></div>

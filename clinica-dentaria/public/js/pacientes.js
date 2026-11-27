@@ -88,7 +88,7 @@ route('paciente', async (view, [id, tab = 'resumo']) => {
   const p = await GET(`pacientes/${id}/resumo`);
   view.innerHTML = `<div class="card" style="padding:14px 16px">
     <div class="row">
-      <button type="button" id="pf-foto" class="ghost" style="padding:0;border-radius:50%" title="Alterar foto" aria-label="Alterar foto">${p.foto ? `<img class="avatar" src="${esc(p.foto)}" alt="">`
+      <button type="button" id="pf-foto" class="ghost" style="padding:0;border-radius:50%" title="Alterar foto" aria-label="${p.foto ? '' : esc(iniciais(p.nome)) + ', '}Alterar foto de ${esc(p.nome)}">${p.foto ? `<img class="avatar" src="${esc(p.foto)}" alt="">`
         : `<span class="avatar">${esc(iniciais(p.nome))}</span>`}</button>
       <div><h1 style="margin:0">${p.titulo && p.titulo !== 'Criança' ? `<span class="muted" style="font-weight:400">${esc(p.titulo)}</span> ` : ''}${esc(p.nome)} ${p.ativo ? '' : '<span class="badge">Inativo</span>'}</h1>
         <div class="muted small">Processo n.º ${esc(p.numero)} · ${p.data_nasc ? `${fmtDate(p.data_nasc)} (${idade(p.data_nasc)} anos)` : 'sem data de nascimento'}
@@ -172,7 +172,7 @@ async function tabAnamnese(el, p) {
 // ---------- notas clínicas ----------
 async function tabNotas(el, p) {
   const notas = await GET(`pacientes/${p.id}/notas`);
-  el.innerHTML = `<div class="card"><h3>Nova nota</h3><textarea id="nt-txt" placeholder="Descrição clínica, observações, procedimentos efetuados…" style="min-height:90px"></textarea>
+  el.innerHTML = `<div class="card"><h2 class="h-card">Nova nota</h2><textarea id="nt-txt" placeholder="Descrição clínica, observações, procedimentos efetuados…" style="min-height:90px"></textarea>
     <div class="row end" style="margin-top:8px">${fld('Médico', sel('nt-med', opts(ativos(L().medicos), App.user.medico_id || p.medico_id, { empty: '—' }), 'id="nt-med"'))}<button class="primary" id="nt-add" data-save>Guardar nota</button></div></div>
     <div class="card">${notas.map(n => `<div style="padding:10px 0;border-bottom:1px solid var(--line2)"><div class="row between"><span class="muted small">${fmtDT(n.data)} · ${esc(n.medico_nome || '')} ${n.user_nome ? '(registado por ' + esc(n.user_nome) + ')' : ''}</span>
       <button class="ghost sm icon" data-del="${n.id}" aria-label="Eliminar" title="Eliminar"><i data-ic="trash"></i></button></div>${esc(n.texto).replace(/\n/g, '<br>')}</div>`).join('') || '<div class="empty">Sem notas clínicas</div>'}</div>`;

@@ -422,7 +422,7 @@ async function render() {
   catch (e) {
     console.error(e);
     // erro de uma página que entretanto foi substituída (navegação rápida): ignora
-    if (my === renderSeq && e.message !== 'Sessão expirada') view.innerHTML = `<div class="alert danger">${esc(e.message)}</div>`;
+    if (my === renderSeq && e.message !== 'Sessão expirada') view.innerHTML = `<div class="alert danger"><h1 style="font-size:inherit;margin:0">${esc(e.message)}</h1></div>`;
   }
   finally {
     clearTimeout(t);
